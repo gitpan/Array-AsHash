@@ -1,0 +1,19 @@
+---
+name: Array-AsHash
+version: 0.01
+author:
+  - Curtis <ovid@cpan.org>
+abstract: 'Treat arrays as a hashes, even if you need references for keys.'
+license: perl
+resources:
+  license: http://dev.perl.org/licenses/
+requires:
+  Class::Std: 0
+  Clone: 0.18
+  Scalar::Util: 1.14
+  Test::More: 0
+provides:
+  Array::AsHash:
+    file: lib/Array/AsHash.pm
+    version: 0.01
+generated_by: Module::Build version 0.2702
