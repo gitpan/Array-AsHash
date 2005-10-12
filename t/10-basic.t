@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-use Test::More tests => 116;
+use Test::More tests => 128;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
@@ -23,7 +23,7 @@ eval { $CLASS->new( { array => [ 1, 2, 3 ] } ) };
 like $@, qr/Uneven number of keys in array/,
   '... and passing an uneven number of array elements to new() should croak';
 
-ok my $array = $CLASS->new, 'Calling new() without arguments should succeed';
+ok defined(my $array = $CLASS->new), 'Calling new() without arguments should succeed';
 isa_ok $array, $CLASS, '... and the object it returns';
 
 can_ok $array, 'get';
@@ -78,7 +78,7 @@ is_deeply $values, ['bar'],
       '... and uncloned arrays should affect their parents';
 }
 
-# test cloning
+# test cloning and insert_before
 
 {
     my @array = qw/foo bar this that one 1/;
@@ -176,7 +176,19 @@ is_deeply $values, ['bar'],
       '... and our remaining values should be correct';
 }
 
-# test insert_after and insert_before
+# test contextual delete
+
+{
+    my @array = qw/foo bar this that one 1/;
+    my $array = $CLASS->new( { array => \@array } );
+    my $value = $array->delete('foo');
+    is $value, 'bar', 'Scalar delete of a single key should return the value';
+    $value = $array->delete('this', 'one');
+    is_deeply $value, ['that', 1],
+        '... but deleteting multiple keys in scalar context should return an aref';
+}
+
+# test insert_after 
 
 {
     my @array = qw/foo bar this that one 1/;
@@ -205,10 +217,14 @@ is_deeply $values, ['bar'],
     is_deeply scalar $array->get_array,
       [qw/foo bar deux 2 trois 3 this that one 1/],
       '... and the full array should be returned';
+    ok $array->exists('trois'), '... and new keys should exist';
     is $array->get('trois'), 3,
       '... and new values should be indexed correctly';
     is $array->get('this'), 'that', '... as should old values';
     is $array->get('one'),  '1',    '... as should old values';
+
+    ok $array->put('trois', '2+1'), 
+        '... and we should be able to set the value of the new keys';
 }
 
 # test each()
@@ -315,8 +331,31 @@ is_deeply $values, ['bar'],
     ok $array->exists($foo), '... and exists() should work properly';
 }
 
-{
+# test overloading
 
+{
+    my $array = $CLASS->new;
+    ok ! $array, 'An empty array in boolean context should return false';
+    $array->put(foo => 'bar');
+    ok $array, '... but it should return true if we add elements to it';
+}
+
+# test cloning
+
+{
+    my $foo   = Foo->new;
+    my $bar   = Bar->new;
+    my @array = ( $foo => 2, 3 => $bar );
+    my $array1 = $CLASS->new( { array => \@array, clone => 1 } );
+    can_ok $array1, 'clone';
+    ok my $array2 = $array1->clone,
+        '... and trying to clone an array should succeed';
+    is_deeply scalar $array2->get_array,
+              scalar $array1->get_array,
+              '... and the cloned array should have the same data';
+}
+
+{
     package Foo;
 
     sub new {
@@ -354,3 +393,17 @@ is_deeply $values, ['bar'],
     sub key { 4 }
 }
 
+# regression test
+
+{
+    my $args = $CLASS->new({array => [STRING => '1']});
+    ok $args->insert_after( 'STRING', order_by => '' ),
+        'We should be able to insert a key with a *false* value';
+
+    ok $args->exists('order_by'), 
+        '... and have it exist';
+    $args->put( order_by => 'foo' );
+    @values = $args->get_array;
+    is_deeply scalar $args->get_array, [qw/STRING 1 order_by foo/],
+        '... and have the correct values set with a subsequent put()';
+}

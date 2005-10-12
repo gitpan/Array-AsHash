@@ -6,7 +6,21 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
+
+my $_bool;
+
+BEGIN {
+    $_bool = sub {
+        my $self = shift;
+        my @count = $self->get_array;
+        return scalar @count;
+    };
+}
+
+use overload
+    bool     => $_bool,
+    fallback => 1;
 
 {
     my ( %index_of, %array_for, %current_index_for, %curr_key_of ) : ATTRS;
@@ -41,10 +55,10 @@ our $VERSION = '0.01';
         }
 
         my @tail = splice @{ $array_for{$ident} }, $index;
-        push @{ $array_for{$ident} }, @_, @tail;    #oops!  Need the indices
+        push @{ $array_for{$ident} }, @_, @tail;
         my %seen = @_;
         foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
-            if ( $index_of{$ident}{$curr_key} >= $index && !$seen{$curr_key} ) {
+            if ( $index_of{$ident}{$curr_key} >= $index && ! exists $seen{$curr_key} ) {
                 $index_of{$ident}{$curr_key} += @_;
             }
         }
@@ -56,8 +70,7 @@ our $VERSION = '0.01';
     my $_index = sub {
         my ( $self, $key ) = @_;
         my $ident = ident $self;
-        my $index =
-          $self->exists($key)
+        my $index = $self->exists($key)
           ? $index_of{$ident}{$key}
           : scalar @{ $array_for{$ident} };    # automatically one greater
         return $index;
@@ -86,6 +99,16 @@ our $VERSION = '0.01';
                 $curr_key_of{$ident}{$old_address} = $curr_key;
             }
         }
+    }
+
+    sub clone {
+        my $self = shift;
+        return (ref $self)->new(
+            {
+                array => scalar $self->get_array,
+                clone => 1,
+            }
+        );
     }
 
     sub keys {
@@ -140,8 +163,9 @@ our $VERSION = '0.01';
     }
 
     sub delete {
-        my $self = shift;
-        my $key  = $self->$_actual_key(shift);
+        my $self     = shift;
+        my $num_args = @_;
+        my $key      = $self->$_actual_key(shift);
         my @value;
 
         if ( $self->exists($key) ) {
@@ -159,7 +183,9 @@ our $VERSION = '0.01';
         if (@_) {
             push @value, $self->delete(@_);
         }
-        return wantarray ? @value : \@value;
+        return    wantarray ? @value 
+            : $num_args > 1 ? \@value 
+            :                 $value[0];
     }
 
     sub exists {
@@ -167,8 +193,6 @@ our $VERSION = '0.01';
         $key = $self->$_actual_key($key);
         return unless defined $key;
 
-        #use Data::Dumper::Simple;
-        #main::diag(Dumper($_[1], $key, %index_of)) if $ENV{DEBUG};
         return exists $index_of{ ident $self}{$key};
     }
 
@@ -205,13 +229,15 @@ our $VERSION = '0.01';
     }
 }
 
+1;
+__END__
 =head1 NAME
 
 Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =head1 SYNOPSIS
 
@@ -255,9 +281,17 @@ affect the entire array are often C<O(N)>.
 
 =head1 EXPORT
 
-The C<each()> and C<exists()> methods may be exported on demand.  See their
-documentation for details.
 None.
+
+=head1 OVERLOADING
+
+Note that the boolean value of the object has been overloaded.  An empty array
+object will report false in boolean context:
+
+ my $array = Array::AsHash->new;
+ if ($array) {
+   # never gets here
+ }
 
 =head1 METHODS
 
@@ -285,6 +319,11 @@ constructor to clone it for you.
     }
  );
 
+Internally, we use the L<Clone> module to clone the array.  This will not
+always work if you are attempting to clone objects (inside-out objects are
+particularly difficult to clone).  If you encounter this, you will need to
+clone the array yourself.  Most of the time, however, it should work.
+
 Of course, you can simply create an empty object and it will still work.
 
  my $array = Array::AsHash->new;
@@ -307,6 +346,15 @@ Returns the "values" of the array.  Returns an array reference in scalar context
  my @values = $array->delete(@keys);
 
 Deletes the given C<@keys> from the array.  Returns the values of the deleted keys.
+In scalar context, returns an array reference of the keys.
+
+As a "common-case" optimization, if only one key is requested for deletion,
+deletion in scalar context will result in the one value (if any) being
+returned instead of an array reference.
+
+ my $deleted = $array->delete($key); # returns the value for $key
+ my $deleted = $array->delete($key1, $key2); # returns an array reference
+
 Non-existing keys will be silently ignored.
 
 =head2 each
@@ -383,6 +431,26 @@ or if C<@kv_pairs> is not an even-sized list.
 
  $array->insert_after($key, this => 'that', one => 1);
 
+=head2 clone
+
+ my $array2 = $array->clone;
+
+Attempts to clone (deep copy) and return a new object.  This may fail if the 
+array contains objects which L<Clone> cannot handle.
+
+=head1 WHY NOT A TIED HASH?
+
+You may very well find that a tied hash fits your purposes better and there's
+certainly nothing wrong with them.  Personally, I do not use tied variables
+unless absolutely necessary because ties are frequently buggy, they tend to be
+slow and they take a perfectly ordinary variable and make it hard to maintain.
+Return a tied variable and some poor maintenance programmer is just going to
+see an hash and they'll get awfully confused when their code isn't doing quite
+what they expect.
+
+Of course, this module provides a richer interface than a tied hash would, but
+that's just another benefit of using a proper class instead of a tie.
+
 =head1 AUTHOR
 
 Curtis "Ovid" Poe, C<< <ovid@cpan.org> >>
@@ -397,15 +465,13 @@ your bug as I make changes.
 
 =head1 SEE ALSO
 
-L<Clone>, L<Tie::IxHash> L<Class::Std> (how this module is implemented).
+L<Clone>, L<Tie::IxHash>, L<Class::Std> (how this module is implemented).
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2005 Curtis, all rights reserved.
+Copyright 2005 Curtis "Ovid" Poe, all rights reserved.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
 
 =cut
-
-1;    # End of Array::AsHash

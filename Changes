@@ -1,5 +1,13 @@
 Revision history for Array-AsHash
 
+0.02    2005-10-12
+        Overloaded boolean context so an empty array object returns false.
+        Deleting a single key in scalar context now returns the value.
+        Added clone() method.
+        Fixed bug where setting a false value with insert_(before|after)
+        would corrupt internal indices.
+        Updated docs and tests.
+
 0.01    2005-10-10
         First version, released on an unsuspecting world.
 
