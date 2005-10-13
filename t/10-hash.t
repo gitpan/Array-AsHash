@@ -3,14 +3,16 @@
 use warnings;
 use strict;
 
-use Test::More tests => 128;
+use Test::More tests => 96;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
 
 BEGIN {
     chdir 't' if -d 't';
-    unshift @INC => '../lib';
+    unshift @INC => '../lib', 'lib';
+    require Foo;
+    require Bar;
     $CLASS = 'Array::AsHash';
     use_ok($CLASS) or die;
 }
@@ -78,50 +80,6 @@ is_deeply $values, ['bar'],
       '... and uncloned arrays should affect their parents';
 }
 
-# test cloning and insert_before
-
-{
-    my @array = qw/foo bar this that one 1/;
-    ok $array = $CLASS->new( { array => \@array, clone => 1 } ),
-      'Calling the constructor and cloning should work';
-    isa_ok $array, $CLASS, '... and the object it returns';
-    is_deeply scalar $array->keys, [qw/foo this one/],
-      '... and the keys should be correct';
-    is_deeply scalar $array->values, [qw/bar that 1/],
-      '... as should the values';
-    $array->put( 'foo', 'oof' );
-    isnt $array[1], $array->get('foo'),
-      '... and cloned arrays should not affect their parents';
-
-    can_ok $array, 'insert_before';
-    eval { $array->insert_before( 'no_such_key', qw/1 2/ ) };
-    like $@, qr/Cannot insert before non-existent key \(no_such_key\)/,
-      '... and attempting to insert before a non-existent key should croak';
-
-    eval { $array->insert_before( 'this', qw/1 2 3/ ) };
-    like $@, qr/Arguments to insert must be an even-sized list/,
-      '... and we should not be able to insert an odd-sized list';
-
-    eval { $array->insert_before( 'this', qw/foo asdf/ ) };
-    like $@, qr/Cannot insert duplicate key \(foo\)/,
-      '... and we should not be able to insert a duplicate key';
-
-    ok $array->insert_before( 'this', qw/ deux 2 trois 3 / ),
-      'Inserting before a key should succeed';
-
-    is_deeply scalar $array->keys, [qw/foo deux trois this one/],
-      '... and inserting before a key should set the correct keys';
-    is_deeply scalar $array->values, [qw/oof 2 3 that 1/],
-      '... and inserting before a key should set the correct values';
-    is_deeply scalar $array->get_array,
-      [qw/foo oof deux 2 trois 3 this that one 1/],
-      '... and the full array should be returned';
-    is $array->get('trois'), 3,
-      '... and new values should be indexed correctly';
-    is $array->get('this'), 'that', '... as should old values';
-    is $array->get('one'),  '1',    '... as should old values';
-}
-
 # test delete
 
 {
@@ -186,45 +144,6 @@ is_deeply $values, ['bar'],
     $value = $array->delete('this', 'one');
     is_deeply $value, ['that', 1],
         '... but deleteting multiple keys in scalar context should return an aref';
-}
-
-# test insert_after 
-
-{
-    my @array = qw/foo bar this that one 1/;
-    $array = $CLASS->new( { array => \@array } );
-    can_ok $array, 'insert_after';
-
-    eval { $array->insert_after( 'no_such_key', qw/1 2/ ) };
-    like $@, qr/Cannot insert after non-existent key \(no_such_key\)/,
-      '... and attempting to insert after a non-existent key should croak';
-
-    eval { $array->insert_after( 'this', qw/1 2 3/ ) };
-    like $@, qr/Arguments to insert must be an even-sized list/,
-      '... and we should not be able to insert an odd-sized list';
-
-    eval { $array->insert_after( 'this', qw/foo asdf/ ) };
-    like $@, qr/Cannot insert duplicate key \(foo\)/,
-      '... and we should not be able to insert a duplicate key';
-
-    ok $array->insert_after( 'foo', qw/ deux 2 trois 3 / ),
-      'Inserting after a key should succeed';
-
-    is_deeply scalar $array->keys, [qw/foo deux trois this one/],
-      '... and inserting after a key should set the correct keys';
-    is_deeply scalar $array->values, [qw/bar 2 3 that 1/],
-      '... and inserting after a key should set the correct values';
-    is_deeply scalar $array->get_array,
-      [qw/foo bar deux 2 trois 3 this that one 1/],
-      '... and the full array should be returned';
-    ok $array->exists('trois'), '... and new keys should exist';
-    is $array->get('trois'), 3,
-      '... and new values should be indexed correctly';
-    is $array->get('this'), 'that', '... as should old values';
-    is $array->get('one'),  '1',    '... as should old values';
-
-    ok $array->put('trois', '2+1'), 
-        '... and we should be able to set the value of the new keys';
 }
 
 # test each()
@@ -355,55 +274,3 @@ is_deeply $values, ['bar'],
               '... and the cloned array should have the same data';
 }
 
-{
-    package Foo;
-
-    sub new {
-        my ( $class, $key ) = @_;
-        my $self = bless { key => $key }, $class;
-        $self->{addr} = "$self";
-        return $self;
-    }
-    sub package { __PACKAGE__ }
-
-    sub hash {
-        my $self = shift;
-        return $self->{key} unless @_;
-        $self->{key} = shift;
-        return $self;
-    }
-    sub key { 2 }
-
-    package Bar;
-
-    sub new {
-        my ( $class, $key ) = @_;
-        my $self = bless { key => $key }, $class;
-        $self->{addr} = "$self";
-        return $self;
-    }
-    sub package { __PACKAGE__ }
-
-    sub hash {
-        my $self = shift;
-        return $self->{key} unless @_;
-        $self->{key} = shift;
-        return $self;
-    }
-    sub key { 4 }
-}
-
-# regression test
-
-{
-    my $args = $CLASS->new({array => [STRING => '1']});
-    ok $args->insert_after( 'STRING', order_by => '' ),
-        'We should be able to insert a key with a *false* value';
-
-    ok $args->exists('order_by'), 
-        '... and have it exist';
-    $args->put( order_by => 'foo' );
-    @values = $args->get_array;
-    is_deeply scalar $args->get_array, [qw/STRING 1 order_by foo/],
-        '... and have the correct values set with a subsequent put()';
-}

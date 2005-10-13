@@ -1,5 +1,9 @@
 Revision history for Array-AsHash
 
+0.10    2005-10-12
+        Added "array-like" methods.
+        Updated docs and split tests into hash and array tests.
+
 0.02    2005-10-12
         Overloaded boolean context so an empty array object returns false.
         Deleting a single key in scalar context now returns the value.

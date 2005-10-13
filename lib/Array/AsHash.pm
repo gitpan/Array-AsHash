@@ -6,21 +6,20 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.02';
+our $VERSION = '0.10';
 
 my $_bool;
 
 BEGIN {
     $_bool = sub {
-        my $self = shift;
-        my @count = $self->get_array;
-        return scalar @count;
+        my $self = CORE::shift;
+        return $self->acount;
     };
 }
 
 use overload
-    bool     => $_bool,
-    fallback => 1;
+  bool     => $_bool,
+  fallback => 1;
 
 {
     my ( %index_of, %array_for, %current_index_for, %curr_key_of ) : ATTRS;
@@ -58,7 +57,9 @@ use overload
         push @{ $array_for{$ident} }, @_, @tail;
         my %seen = @_;
         foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
-            if ( $index_of{$ident}{$curr_key} >= $index && ! exists $seen{$curr_key} ) {
+            if ( $index_of{$ident}{$curr_key} >= $index
+                && !exists $seen{$curr_key} )
+            {
                 $index_of{$ident}{$curr_key} += @_;
             }
         }
@@ -70,7 +71,8 @@ use overload
     my $_index = sub {
         my ( $self, $key ) = @_;
         my $ident = ident $self;
-        my $index = $self->exists($key)
+        my $index =
+          $self->exists($key)
           ? $index_of{$ident}{$key}
           : scalar @{ $array_for{$ident} };    # automatically one greater
         return $index;
@@ -102,8 +104,8 @@ use overload
     }
 
     sub clone {
-        my $self = shift;
-        return (ref $self)->new(
+        my $self = CORE::shift;
+        return ( ref $self )->new(
             {
                 array => scalar $self->get_array,
                 clone => 1,
@@ -111,28 +113,112 @@ use overload
         );
     }
 
+    sub unshift {
+        my $self     = CORE::shift;
+        my @kv_pairs = @_;
+        if ( @kv_pairs % 2 ) {
+            $self->_croak("Arguments to unshift() must be an even-sized list");
+        }
+        my $ident = ident $self;
+        foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
+            $index_of{$ident}{$curr_key} += @kv_pairs;
+        }
+        for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
+            my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
+            if ( $self->exists($key) ) {
+                $self->_croak("Cannot unshift an existing key ($key)");
+            }
+            $index_of{$ident}{$key} = $i;
+        }
+        unshift @{ $array_for{$ident} }, @kv_pairs;
+    }
+
+    sub push {
+        my $self     = CORE::shift;
+        my @kv_pairs = @_;
+        if ( @kv_pairs % 2 ) {
+            $self->_croak("Arguments to unshift() must be an even-sized list");
+        }
+        my $ident = ident $self;
+        my @array = $self->get_array;
+        for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
+            my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
+            if ( $self->exists($key) ) {
+                $self->_croak("Cannot unshift an existing key ($key)");
+            }
+            $index_of{$ident}{$key} = @array + $i;
+        }
+        CORE::push @{ $array_for{ ident $self} }, @kv_pairs;
+    }
+
+    sub pop {
+        my $self = shift;
+        return unless $self;
+        my $ident = ident $self;
+        my ( $key, $value ) = splice @{ $array_for{$ident} }, -2;
+        delete $index_of{$ident}{$key};
+        return wantarray ? ( $key, $value ) : [ $key, $value ];
+    }
+
+    sub shift {
+        my $self     = CORE::shift;
+        return unless $self;
+        my $ident = ident $self;
+        foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
+            $index_of{$ident}{$curr_key} -= 2;
+        }
+        my ( $key, $value ) = splice @{ $array_for{$ident} }, 0, 2;
+        delete $index_of{$ident}{$key};
+        return wantarray ? ( $key, $value ) : [ $key, $value ];
+    }
+
+    sub hcount {
+        my $self = CORE::shift;
+        my $count = $self->acount;
+        return $count / 2;
+    }
+
+    sub acount {
+        my $self = CORE::shift;
+        my @array = $self->get_array;
+        return scalar @array;
+    }
+    
+    sub hindex {
+        my $self  = CORE::shift;
+        my $index = $self->aindex(CORE::shift);
+        return defined $index ? $index / 2 : ();
+    }
+
+    sub aindex {
+        my $self = CORE::shift;
+        my $key  = $self->$_actual_key(CORE::shift);
+        return unless $self->exists($key);
+        return $self->$_index($key);
+    }
+
     sub keys {
-        my $self  = shift;
+        my $self  = CORE::shift;
         my @array = $self->get_array;
         my @keys;
         for ( my $i = 0 ; $i < @array ; $i += 2 ) {
-            push @keys, $array[$i];
+            CORE::push @keys, $array[$i];
         }
         return wantarray ? @keys : \@keys;
     }
 
     sub values {
-        my $self  = shift;
+        my $self  = CORE::shift;
         my @array = $self->get_array;
         my @values;
         for ( my $i = 1 ; $i < @array ; $i += 2 ) {
-            push @values, $array[$i];
+            CORE::push @values, $array[$i];
         }
         return wantarray ? @values : \@values;
     }
 
     sub each {
-        my $self  = shift;
+        my $self  = CORE::shift;
         my $ident = ident $self;
         my $index = $current_index_for{$ident} || 0;
         my @array = $self->get_array;
@@ -146,26 +232,26 @@ use overload
     }
     *kv = \&each;
 
-    sub reset_each { $current_index_for{ ident shift } = 0 }
+    sub reset_each { $current_index_for{ ident CORE::shift } = 0 }
 
     sub insert_before {
-        my $self  = shift;
-        my $key   = shift;
+        my $self  = CORE::shift;
+        my $key   = CORE::shift;
         my $index = $self->$_index($key);
         $self->$_insert( $key, 'before', $index, @_ );
     }
 
     sub insert_after {
-        my $self  = shift;
-        my $key   = shift;
+        my $self  = CORE::shift;
+        my $key   = CORE::shift;
         my $index = $self->$_index($key) + 2;
         $self->$_insert( $key, 'after', $index, @_ );
     }
 
     sub delete {
-        my $self     = shift;
+        my $self     = CORE::shift;
         my $num_args = @_;
-        my $key      = $self->$_actual_key(shift);
+        my $key      = $self->$_actual_key(CORE::shift);
         my @value;
 
         if ( $self->exists($key) ) {
@@ -173,7 +259,7 @@ use overload
             my $index = $self->$_index($key);
             delete $index_of{$ident}{$key};
             my ( undef, $value ) = splice @{ $array_for{$ident} }, $index, 2;
-            push @value, $value;
+            CORE::push @value, $value;
             foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
                 if ( $index_of{$ident}{$curr_key} >= $index ) {
                     $index_of{$ident}{$curr_key} -= 2;
@@ -181,11 +267,11 @@ use overload
             }
         }
         if (@_) {
-            push @value, $self->delete(@_);
+            CORE::push @value, $self->delete(@_);
         }
-        return    wantarray ? @value 
-            : $num_args > 1 ? \@value 
-            :                 $value[0];
+        return wantarray  ? @value
+          : $num_args > 1 ? \@value
+          : $value[0];
     }
 
     sub exists {
@@ -223,7 +309,7 @@ use overload
     }
 
     sub get_array {
-        my $self = shift;
+        my $self = CORE::shift;
         return
           wantarray ? @{ $array_for{ ident $self} } : $array_for{ ident $self};
     }
@@ -231,13 +317,14 @@ use overload
 
 1;
 __END__
+
 =head1 NAME
 
 Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.02
+Version 0.10
 
 =head1 SYNOPSIS
 
@@ -293,7 +380,7 @@ object will report false in boolean context:
    # never gets here
  }
 
-=head1 METHODS
+=head1 CONSTRUCTOR
 
 =head2 new
 
@@ -328,6 +415,11 @@ Of course, you can simply create an empty object and it will still work.
 
  my $array = Array::AsHash->new;
  $array->put('foo', 'bar');
+
+=head1 HASH-LIKE METHODS
+
+The following methods allow one to treat an L<Array::AsHash> object
+more-or-less like a hash.
 
 =head2 keys
 
@@ -392,12 +484,6 @@ Resets the C<each> iterator to point to the beginning of the array.
 
 Returns true if the given C<$thing> exists in the array as a I<key>.
 
-=head2 get_array
-
- my @array = $array->get_array;
-
-Returns the array in the object.  Returns an array reference in scalar context.
-
 =head2 get
 
  my $value = $array->get($key);
@@ -411,13 +497,60 @@ Returns the value associated with a given key, if any.
 Sets the value for a given C<$key>.  If the key does not already exist, this
 pushes two elements onto the end of the array.
 
+=head2 hcount
+
+ my $pair_count = $array->hcount;
+
+Returns the number of key/value pairs in the array.
+
+=head2 hindex
+
+ my $index = $array->hindex('foo');
+
+Returns the I<hash index> of a given key, if the keys exists.  The hash index
+is the array index divided by 2.  In other words, it's the index of the
+key/value pair.
+
+=head1 ARRAY-LIKE METHODS
+
+The following methods allow one to treat a L<Array::AsHash> object more-or-less
+like an array.
+
+=head2 shift
+
+ my ($key, $value) = $array->shift;
+
+Removes the first key/value pair, if any, from the array and returns it.
+Returns an array reference in scalar context.
+
+=head2 pop
+
+ my ($key, $value) = $array->pop;
+
+Removes the last key/value pair, if any, from the array and returns it.
+Returns an array reference in scalar context.
+
+=head2 unshift
+
+ $array->unshift(@kv_pairs);
+
+Takes an even-sized list of key/value pairs and attempts to unshift them
+onto the front of the array.  Will croak if any of the keys already exists.
+
+=head2 push
+
+ $array->unshift(@kv_pairs);
+
+Takes an even-sized list of key/value pairs and attempts to push them
+onto the end of the array.  Will croak if any of the keys already exists.
+
 =head2 insert_before
 
  $array->insert_before($key, @kv_pairs);
 
-This method takes a given C<$key> and attempts to insert an even-sized list of
-key/value pairs I<before> the given key.  Will croak if C<$key> does not exist
-or if C<@kv_pairs> is not an even-sized list.
+Similar to splice(), this method takes a given C<$key> and attempts to insert
+an even-sized list of key/value pairs I<before> the given key.  Will croak if
+C<$key> does not exist or if C<@kv_pairs> is not an even-sized list.
 
  $array->insert_before($key, this => 'that', one => 1);
 
@@ -430,6 +563,35 @@ key/value pairs I<after> the given key.  Will croak if C<$key> does not exist
 or if C<@kv_pairs> is not an even-sized list.
 
  $array->insert_after($key, this => 'that', one => 1);
+
+=head2 acount
+
+ my $count = $array->acount;
+
+Returns the number of elements in the array.
+
+=head2 aindex
+
+ my $count = $array->aindex('foo');
+
+Returns the I<aray index> of a given key, if the keys exists.
+
+=head1 OTHER METHODS
+
+The following methods really don't match the aforementioned categories.
+
+=head2 get_array
+
+ my @array = $array->get_array;
+
+Returns the array in the object.  Returns an array reference in scalar context.
+Note that altering the returned array can affect the internal state of the
+L<Array::AsHash> object and will probably break it.  You should usually only
+get the underlying array as the last action before disposing of the object.
+Otherwise, attempt to clone the array with the C<clone> method and use I<that>
+array.
+
+ my @array = $array->clone->get_array;
 
 =head2 clone
 
