@@ -6,7 +6,7 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 my $_bool;
 
@@ -161,7 +161,7 @@ use overload
     }
 
     sub shift {
-        my $self     = CORE::shift;
+        my $self = CORE::shift;
         return unless $self;
         my $ident = ident $self;
         foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
@@ -173,17 +173,17 @@ use overload
     }
 
     sub hcount {
-        my $self = CORE::shift;
+        my $self  = CORE::shift;
         my $count = $self->acount;
         return $count / 2;
     }
 
     sub acount {
-        my $self = CORE::shift;
+        my $self  = CORE::shift;
         my @array = $self->get_array;
         return scalar @array;
     }
-    
+
     sub hindex {
         my $self  = CORE::shift;
         my $index = $self->aindex(CORE::shift);
@@ -217,6 +217,18 @@ use overload
         return wantarray ? @values : \@values;
     }
 
+    sub first {
+        my $self  = CORE::shift;
+        my $index = $current_index_for{ ident $self};
+        return defined $index && 2 == $index;
+    }
+
+    sub last {
+        my $self  = CORE::shift;
+        my $index = $current_index_for{ ident $self};
+        return defined $index && $self->acount == $index;
+    }
+
     sub each {
         my $self  = CORE::shift;
         my $ident = ident $self;
@@ -227,12 +239,13 @@ use overload
             return;
         }
         my ( $key, $value ) = @array[ $index, $index + 1 ];
+        no warnings 'uninitialized';
         $current_index_for{$ident} += 2;
         return ( $key, $value );
     }
     *kv = \&each;
 
-    sub reset_each { $current_index_for{ ident CORE::shift } = 0 }
+    sub reset_each { $current_index_for{ ident CORE::shift } = undef }
 
     sub insert_before {
         my $self  = CORE::shift;
@@ -291,6 +304,30 @@ use overload
           : ();
     }
 
+    sub get_pairs {
+        my ( $self, @keys ) = @_;
+
+        my @pairs;
+        foreach my $key (@keys) {
+            next unless $self->exists($key);
+            CORE::push @pairs, $key, $self->get($key);
+        }
+        return wantarray ? @pairs : \@pairs;
+    }
+
+    sub default {
+        my ( $self, @pairs ) = @_;
+        if ( @pairs % 2 ) {
+            $self->_croak("Arguments to default must be an even-sized list");
+        }
+        for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
+            my ( $k, $v ) = @pairs[ $i, $i + 1 ];
+            next if $self->exists($k);
+            $self->put( $k, $v );
+        }
+        return $self;
+    }
+
     sub put {
         my ( $self, $key, $value ) = @_;
         my $ident = ident $self;
@@ -324,7 +361,7 @@ Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.10
+Version 0.11
 
 =head1 SYNOPSIS
 
@@ -472,6 +509,20 @@ to restart from the beginning, call the C<reset_each> method.
 
 C<kv> is a synonym for C<each>.
 
+=head2 first
+
+ if ($array->first) { ... }
+
+Returns true if we are iterating over the array with C<each()> and we are on the
+first iteration.
+
+=head2 last
+
+ if ($array->last) { ... }
+
+Returns true if we are iterating over the array with C<each()> and we are on the
+last iteration.
+
 =head2 reset_each
 
  $array->reset_each;
@@ -496,6 +547,28 @@ Returns the value associated with a given key, if any.
 
 Sets the value for a given C<$key>.  If the key does not already exist, this
 pushes two elements onto the end of the array.
+
+=head2 get_pairs
+
+ my $array = Array::AsHash->new({array => [qw/foo bar one 1 two 2/]});
+ my @pairs = $array->get_pairs(qw/foo two/); # @pairs = (foo => 'bar', two => 2);
+ my $pairs = $array->get_pairs(qw/xxx two/); # $pairs = [ two => 2 ];
+
+C<get_pairs> returns an even-size list of key/value pairs.  It silently discards
+non-existent keys.  In scalar context it returns an array reference.
+
+This method is useful for reordering an array.
+
+ my $array  = Array::AsHash->new({array => [qw/foo bar two 2 one 1/]});
+ my @pairs  = $array->get_pairs(sort $array->keys);
+ my $sorted = Array::AsHash->new({array => \@pairs});
+
+=head2 default
+
+ $array->default(@kv_pairs);
+
+Given an even-sized list of key/value pairs, each key which does not already exist
+in the array will be set to the corresponding value.
 
 =head2 hcount
 

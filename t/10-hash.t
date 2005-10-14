@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-use Test::More tests => 96;
+use Test::More tests => 117;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
@@ -25,7 +25,8 @@ eval { $CLASS->new( { array => [ 1, 2, 3 ] } ) };
 like $@, qr/Uneven number of keys in array/,
   '... and passing an uneven number of array elements to new() should croak';
 
-ok defined(my $array = $CLASS->new), 'Calling new() without arguments should succeed';
+ok defined( my $array = $CLASS->new ),
+  'Calling new() without arguments should succeed';
 isa_ok $array, $CLASS, '... and the object it returns';
 
 can_ok $array, 'get';
@@ -86,7 +87,8 @@ is_deeply $values, ['bar'],
     my @array = qw/foo bar this that one 1/;
     $array = $CLASS->new( { array => \@array, clone => 1 } ), can_ok $array,
       'delete';
-    ok my @values = $array->delete('this'), '... and deleting a key should work';
+    ok my @values = $array->delete('this'),
+      '... and deleting a key should work';
     is_deeply \@values, ['that'],
       '... and it should return the value we deleted';
 
@@ -99,16 +101,18 @@ is_deeply $values, ['bar'],
     is $array->get('one'), 1,
       '... and getting items after the deleted key should work';
 
-    $array->insert_after('foo', 'this', 'that', 'xxx', 'yyy');
-    is $array->get('xxx'), 'yyy', 'We should be able to fetch new values from arrays with deletions';
+    $array->insert_after( 'foo', 'this', 'that', 'xxx', 'yyy' );
+    is $array->get('xxx'), 'yyy',
+      'We should be able to fetch new values from arrays with deletions';
     is $array->get('foo'), 'bar',
       '... and getting items before the inserted keys should work';
     is $array->get('one'), 1,
       '... and getting items after the inserted keys should work';
-    ok @values = $array->delete('this', 'xxx'), '... and deleting multiple keys should work';
-    is_deeply \@values, ['that', 'yyy'],
+    ok @values = $array->delete( 'this', 'xxx' ),
+      '... and deleting multiple keys should work';
+    is_deeply \@values, [ 'that', 'yyy' ],
       '... and it should return the values we deleted';
-    
+
     is_deeply scalar $array->keys, [qw/foo one/],
       '... and our remaining keys should be correct';
     is_deeply scalar $array->values, [qw/bar 1/],
@@ -118,16 +122,15 @@ is_deeply $values, ['bar'],
     is $array->get('one'), 1,
       '... and getting items after the deleted key should work';
 
-    ok ! (@values = $array->delete('no_such_key')),
-        'Trying to delete a non-existent key should silently fail';
+    ok !( @values = $array->delete('no_such_key') ),
+      'Trying to delete a non-existent key should silently fail';
     is_deeply scalar $array->keys, [qw/foo one/],
       '... and our remaining keys should be correct';
     is_deeply scalar $array->values, [qw/bar 1/],
       '... and our remaining values should be correct';
-    ok @values = $array->delete('no_such_key', 'one'),
-        'Trying to delete a non-existent key and an existing key should work';
-    is_deeply \@values, [1],
-        '... and return the correct value(s)';
+    ok @values = $array->delete( 'no_such_key', 'one' ),
+      'Trying to delete a non-existent key and an existing key should work';
+    is_deeply \@values, [1], '... and return the correct value(s)';
     is_deeply scalar $array->keys, [qw/foo/],
       '... and our remaining keys should be correct';
     is_deeply scalar $array->values, [qw/bar/],
@@ -141,9 +144,9 @@ is_deeply $values, ['bar'],
     my $array = $CLASS->new( { array => \@array } );
     my $value = $array->delete('foo');
     is $value, 'bar', 'Scalar delete of a single key should return the value';
-    $value = $array->delete('this', 'one');
-    is_deeply $value, ['that', 1],
-        '... but deleteting multiple keys in scalar context should return an aref';
+    $value = $array->delete( 'this', 'one' );
+    is_deeply $value, [ 'that', 1 ],
+'... but deleteting multiple keys in scalar context should return an aref';
 }
 
 # test each()
@@ -254,23 +257,99 @@ is_deeply $values, ['bar'],
 
 {
     my $array = $CLASS->new;
-    ok ! $array, 'An empty array in boolean context should return false';
-    $array->put(foo => 'bar');
+    ok !$array, 'An empty array in boolean context should return false';
+    $array->put( foo => 'bar' );
     ok $array, '... but it should return true if we add elements to it';
 }
 
 # test cloning
 
 {
-    my $foo   = Foo->new;
-    my $bar   = Bar->new;
-    my @array = ( $foo => 2, 3 => $bar );
+    my $foo    = Foo->new;
+    my $bar    = Bar->new;
+    my @array  = ( $foo => 2, 3 => $bar );
     my $array1 = $CLASS->new( { array => \@array, clone => 1 } );
     can_ok $array1, 'clone';
     ok my $array2 = $array1->clone,
-        '... and trying to clone an array should succeed';
-    is_deeply scalar $array2->get_array,
-              scalar $array1->get_array,
-              '... and the cloned array should have the same data';
+      '... and trying to clone an array should succeed';
+    is_deeply scalar $array2->get_array, scalar $array1->get_array,
+      '... and the cloned array should have the same data';
 }
 
+# tests first and last
+
+{
+    my $array = $CLASS->new( { array => [qw/foo bar one 1 two 2/] } );
+
+    can_ok $array, qw/first last/;
+    ok !$array->first,
+'... and first should return false if we are not on the first "each" item';
+    ok !$array->last,
+      '... and last should return false if we are not on the last "each" item';
+
+    $array->each;
+    ok $array->first,
+      '... and first should return true if we are on the first "each" item';
+    ok !$array->last,
+      '... and last should return false if we are not on the last "each" item';
+
+    $array->each;
+    ok !$array->first,
+'... and first should return false if we are not on the first "each" item';
+    ok !$array->last,
+      '... and last should return false if we are not on the last "each" item';
+
+    $array->each;
+    ok !$array->first,
+'... and first should return false if we are not on the first "each" item';
+    ok $array->last,
+      '... and last should return true if we are on the last "each" item';
+}
+
+# tests pairs
+
+{
+    my $array = $CLASS->new( { array => [qw/foo bar one 1 two 2/] } );
+    can_ok $array, 'get_pairs';
+
+    my $pair = $array->get_pairs('foo');
+    is_deeply $pair, [qw/foo bar/],
+      '... and it should return an array reference in scalar context';
+    my @pair = $array->get_pairs('foo');
+    is_deeply \@pair, [qw/foo bar/],
+      '... and it should return an array in scalar context';
+
+    $pair = $array->get_pairs( 'foo', 'two' );
+    is_deeply $pair, [qw/foo bar two 2/],
+      'We should be able to get multiple pairs';
+    @pair = $array->get_pairs( 'foo', 'two' );
+    is_deeply \@pair, [qw/foo bar two 2/], '... even in scalar context';
+
+    $pair = $array->get_pairs( 'foo', 'no_such_key', 'two' );
+    is_deeply $pair, [qw/foo bar two 2/],
+      'pair() shoudl silently discard non-existent keys';
+    @pair = $array->get_pairs( 'foo', 'no_such_key', 'two' );
+    is_deeply \@pair, [qw/foo bar two 2/], '... even in scalar context';
+}
+
+# tests default
+
+{
+    my $array = $CLASS->new( { array => [qw/foo bar one 1 two 2/] } );
+    can_ok $array, 'default';
+
+    $array->default( foo => 'Ovid' );
+    is $array->get('foo'), 'bar',
+        '... and it should not override a key which exists';
+    $array->default(publius => 'Ovidius');
+    ok $array->exists('publius'),
+        '... but it should create a key if it did not exist';
+    is $array->get('publius'), 'Ovidius',
+        '... and it should be assigned the correct value';
+
+    $array = $CLASS->new;
+    $array->default( one => 1, two => 2, three => 3 );
+    my @array = $array->get_array;
+    is_deeply \@array, [qw/ one 1 two 2 three 3/],
+        '... and we should be able to set multiple keys at once';
+}

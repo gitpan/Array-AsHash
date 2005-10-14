@@ -1,5 +1,12 @@
 Revision history for Array-AsHash
 
+0.11    2005-10-14
+        Added "default" method.
+        Added "get_pairs" method.
+        Added "first" and "last" methods.
+        Included test libs.
+        Renamed t/10-basic.t to t/10-hash.t.
+
 0.10    2005-10-12
         Added "array-like" methods.
         Updated docs and split tests into hash and array tests.

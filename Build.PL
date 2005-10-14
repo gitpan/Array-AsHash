@@ -5,7 +5,7 @@ use Module::Build;
 my $builder = Module::Build->new(
     module_name       => 'Array::AsHash',
     license           => 'perl',
-    dist_author       => 'Curtis <ovid@cpan.org>',
+    dist_author       => 'Curtis "Ovid" Poe <ovid@cpan.org>',
     dist_version_from => 'lib/Array/AsHash.pm',
     requires          => {
         'Class::Std'   => 0,
