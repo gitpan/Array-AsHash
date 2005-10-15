@@ -6,23 +6,56 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.11';
+our $VERSION = '0.20';
 
-my $_bool;
+my ( $_bool, $_to_string );
 
 BEGIN {
     $_bool = sub {
         my $self = CORE::shift;
         return $self->acount;
     };
+
+    $_to_string = sub {
+        require Data::Dumper;
+        local $Data::Dumper::Indent = 0;
+        local $Data::Dumper::Terse  = 1;
+        my $self   = CORE::shift;
+        my $string = '';
+        return $string unless $self;
+        while ( my ( $k, $v ) = $self->each ) {
+            foreach ( $k, $v ) {
+                $_ = ref $_ ? Data::Dumper::Dumper($_) : $_;
+            }
+            $string .= "$k\n        $v\n";
+        }
+        return $string;
+    };
 }
 
 use overload
   bool     => $_bool,
+  '""'     => $_to_string,
   fallback => 1;
 
 {
-    my ( %index_of, %array_for, %current_index_for, %curr_key_of ) : ATTRS;
+    my ( %index_of, %array_for, %current_index_for, %curr_key_of, %is_strict )
+      : ATTRS;
+
+    my $_croak = sub {
+        my ( $proto, $message ) = @_;
+        require Carp;
+        Carp::croak($message);
+    };
+
+    my $_validate_kv_pairs = sub {
+        my ( $self, $arg_for ) = @_;
+        my $sub = $arg_for->{sub} || ( caller(1) )[3];
+
+        if ( @{ $arg_for->{pairs} } % 2 ) {
+            $self->$_croak("Arguments to $sub must be an even-sized list");
+        }
+    };
 
     my $_actual_key = sub {
         my ( $self, $key ) = @_;
@@ -36,19 +69,19 @@ use overload
 
     my $_insert = sub {
         my ( $self, $key, $label, $index ) = splice @_, 0, 4;
+
+        $self->$_validate_kv_pairs(
+            { pairs => \@_, sub => "Array::AsHash::insert_$label" } );
         $key = $self->$_actual_key($key);
 
         unless ( $self->exists($key) ) {
-            $self->_croak("Cannot insert $label non-existent key ($key)");
-        }
-        if ( @_ % 2 ) {
-            $self->_croak("Arguments to insert must be an even-sized list");
+            $self->$_croak("Cannot insert $label non-existent key ($key)");
         }
         my $ident = ident $self;
         foreach ( my $i = 0 ; $i < @_ ; $i += 2 ) {
             my $new_key = $_[$i];
             if ( $self->exists($new_key) ) {
-                $self->_croak("Cannot insert duplicate key ($new_key)");
+                $self->$_croak("Cannot insert duplicate key ($new_key)");
             }
             $index_of{$ident}{$new_key} = $index + $i;
         }
@@ -81,14 +114,14 @@ use overload
     sub BUILD {
         my ( $class, $ident, $arg_ref ) = @_;
         my $array = $arg_ref->{array} || [];
-        my $clone = $arg_ref->{clone} || 0;
-        $array = Clone::clone($array) if $clone;
+        $is_strict{$ident} = $arg_ref->{strict};
+        $array = Clone::clone($array) if $arg_ref->{clone};
 
         unless ( 'ARRAY' eq ref $array ) {
-            $class->_croak('Argument to new() must be an array reference');
+            $class->$_croak('Argument to new() must be an array reference');
         }
         if ( @$array % 2 ) {
-            $class->_croak('Uneven number of keys in array');
+            $class->$_croak('Uneven number of keys in array');
         }
 
         $array_for{$ident} = $array;
@@ -103,6 +136,13 @@ use overload
         }
     }
 
+    sub strict {
+        my $self = shift;
+        return $is_strict{ident $self} unless @_;
+        $is_strict{ident $self} = !! shift;
+        return $self;
+    }
+
     sub clone {
         my $self = CORE::shift;
         return ( ref $self )->new(
@@ -114,11 +154,8 @@ use overload
     }
 
     sub unshift {
-        my $self     = CORE::shift;
-        my @kv_pairs = @_;
-        if ( @kv_pairs % 2 ) {
-            $self->_croak("Arguments to unshift() must be an even-sized list");
-        }
+        my ( $self, @kv_pairs ) = @_;
+        $self->$_validate_kv_pairs( { pairs => \@kv_pairs } );
         my $ident = ident $self;
         foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
             $index_of{$ident}{$curr_key} += @kv_pairs;
@@ -126,7 +163,7 @@ use overload
         for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
             my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
             if ( $self->exists($key) ) {
-                $self->_croak("Cannot unshift an existing key ($key)");
+                $self->$_croak("Cannot unshift an existing key ($key)");
             }
             $index_of{$ident}{$key} = $i;
         }
@@ -134,17 +171,14 @@ use overload
     }
 
     sub push {
-        my $self     = CORE::shift;
-        my @kv_pairs = @_;
-        if ( @kv_pairs % 2 ) {
-            $self->_croak("Arguments to unshift() must be an even-sized list");
-        }
+        my ( $self, @kv_pairs ) = @_;
+        $self->$_validate_kv_pairs( { pairs => \@kv_pairs } );
         my $ident = ident $self;
         my @array = $self->get_array;
         for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
             my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
             if ( $self->exists($key) ) {
-                $self->_croak("Cannot unshift an existing key ($key)");
+                $self->$_croak("Cannot unshift an existing key ($key)");
             }
             $index_of{$ident}{$key} = @array + $i;
         }
@@ -232,16 +266,21 @@ use overload
     sub each {
         my $self  = CORE::shift;
         my $ident = ident $self;
-        my $index = $current_index_for{$ident} || 0;
-        my @array = $self->get_array;
-        if ( $index >= @array ) {
-            $self->reset_each;
-            return;
-        }
-        my ( $key, $value ) = @array[ $index, $index + 1 ];
-        no warnings 'uninitialized';
-        $current_index_for{$ident} += 2;
-        return ( $key, $value );
+
+        my $each = sub {
+            my $index = $current_index_for{$ident} || 0;
+            my @array = $self->get_array;
+            if ( $index >= @array ) {
+                $self->reset_each;
+                return;
+            }
+            my ( $key, $value ) = @array[ $index, $index + 1 ];
+            no warnings 'uninitialized';
+            $current_index_for{$ident} += 2;
+            return ( $key, $value );
+        };
+
+        return wantarray ? $each->() : $each;
     }
     *kv = \&each;
 
@@ -267,8 +306,9 @@ use overload
         my $key      = $self->$_actual_key(CORE::shift);
         my @value;
 
+        my $ident  = ident $self;
+
         if ( $self->exists($key) ) {
-            my $ident = ident $self;
             my $index = $self->$_index($key);
             delete $index_of{$ident}{$key};
             my ( undef, $value ) = splice @{ $array_for{$ident} }, $index, 2;
@@ -278,6 +318,9 @@ use overload
                     $index_of{$ident}{$curr_key} -= 2;
                 }
             }
+        }
+        elsif ( $is_strict{$ident} ) {
+            $self->$_croak("Cannot delete non-existent key ($key)");
         }
         if (@_) {
             CORE::push @value, $self->delete(@_);
@@ -295,13 +338,56 @@ use overload
         return exists $index_of{ ident $self}{$key};
     }
 
+    sub rename {
+        my ( $self, @pairs ) = @_;
+        $self->$_validate_kv_pairs( { pairs => \@pairs } );
+
+        foreach ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
+            my ( $old, $new ) = @pairs[ $i, $i + 1 ];
+            unless ( $self->exists($old) ) {
+                $self->$_croak("Cannot rename non-existent key ($old)");
+            }
+            unless ( defined $new ) {
+                $self->$_croak("Cannot rename ($old) to an undefined value");
+            }
+            if ( $self->exists($new) ) {
+                $self->$_croak(
+                    "Cannot rename ($old) to an key which already exists ($new)"
+                );
+            }
+            my $ident = ident $self;
+            my $index = delete $index_of{$ident}{$old};
+            $index_of{$ident}{$new} = $index;
+            $array_for{$ident}[$index] = $new;
+        }
+        return $self;
+    }
+
     sub get {
-        my ( $self, $key ) = @_;
-        $key = $self->$_actual_key($key);
-        return unless defined $key;
-        return $self->exists($key)
-          ? $array_for{ ident $self}[ $self->$_index($key) + 1 ]
-          : ();
+        my ( $self, @keys ) = @_;
+        my @get;
+        my $ident = ident $self;
+        foreach my $key (@keys) {
+            $key = $self->$_actual_key($key);
+            next unless defined $key;
+            my $exists = $self->exists($key);
+            if ( $is_strict{$ident} && ! $exists ) {
+                $self->$_croak("Cannot get non-existent key ($key)");
+            }
+            if ( $exists ) {
+                CORE::push @get,
+                  $array_for{ $ident }[ $self->$_index($key) + 1 ];
+            }
+            elsif ( @keys > 1 ) {
+                CORE::push @get, undef;
+            }
+            else {
+                return;
+            }
+        }
+        return wantarray ? @get
+          : @keys > 1    ? \@get
+          : $get[0];
     }
 
     sub get_pairs {
@@ -309,17 +395,20 @@ use overload
 
         my @pairs;
         foreach my $key (@keys) {
-            next unless $self->exists($key);
-            CORE::push @pairs, $key, $self->get($key);
+            if ($self->exists($key)) {
+                CORE::push @pairs, $key, $self->get($key);
+            }
+            elsif ($is_strict{ident $self}) {
+                $self->$_croak("Cannot get pair for non-existent key ($key)");
+            }
         }
         return wantarray ? @pairs : \@pairs;
     }
 
     sub default {
         my ( $self, @pairs ) = @_;
-        if ( @pairs % 2 ) {
-            $self->_croak("Arguments to default must be an even-sized list");
-        }
+        $self->$_validate_kv_pairs( { pairs => \@pairs } );
+
         for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
             my ( $k, $v ) = @pairs[ $i, $i + 1 ];
             next if $self->exists($k);
@@ -328,21 +417,42 @@ use overload
         return $self;
     }
 
-    sub put {
-        my ( $self, $key, $value ) = @_;
+    sub add {
+        my ( $self, @pairs ) = @_;
+        $self->$_validate_kv_pairs( { pairs => \@pairs } );
         my $ident = ident $self;
-        $key = $self->$_actual_key($key);
-        my $index = $self->$_index($key);
-        $index_of{$ident}{$key}          = $index;
-        $array_for{$ident}[$index]       = $key;
-        $array_for{$ident}[ $index + 1 ] = $value;
+
+        for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
+            my ( $key, $value ) = @pairs[ $i, $i + 1 ];
+            $key = $self->$_actual_key($key);
+            if ($self->exists($key)) {
+                $self->$_croak("Cannot add existing key ($key)");
+            }
+            my $index = $self->$_index($key);
+            $index_of{$ident}{$key}          = $index;
+            $array_for{$ident}[$index]       = $key;
+            $array_for{$ident}[ $index + 1 ] = $value;
+        }
         return $self;
     }
 
-    sub _croak {
-        my ( $proto, $message ) = @_;
-        require Carp;
-        Carp::croak($message);
+    sub put {
+        my ( $self, @pairs ) = @_;
+        $self->$_validate_kv_pairs( { pairs => \@pairs } );
+        my $ident = ident $self;
+
+        for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
+            my ( $key, $value ) = @pairs[ $i, $i + 1 ];
+            $key = $self->$_actual_key($key);
+            if (! $self->exists($key) && $is_strict{$ident}) {
+                $self->$_croak("Cannot put a non-existent key ($key)");
+            }
+            my $index = $self->$_index($key);
+            $index_of{$ident}{$key}          = $index;
+            $array_for{$ident}[$index]       = $key;
+            $array_for{$ident}[ $index + 1 ] = $value;
+        }
+        return $self;
     }
 
     sub get_array {
@@ -361,7 +471,7 @@ Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.11
+Version 0.20
 
 =head1 SYNOPSIS
 
@@ -390,37 +500,24 @@ Version 0.11
 
 Sometimes we have an array that we need to treat as a hash.  We need the data
 ordered, but we don't use an ordered hash because it's already an array.  Or
-it's just quick 'n easy to run over array elements two at a time.  
+it's just quick 'n easy to run over array elements two at a time.  This module
+allows you to use the array as a hash but also mostly still use it as an array,
+too.
 
-Because we take a reference to what you pass to the constructor (or use the
-reference you pass), you may wish to copy your data if you do not want it
-altered (the data are not altered except through the publicly available methods
-of this class).  
-
-Also, we keep the array an array.  This does mean that things might get a bit
-slow if you have a large array, but it also means that you can use references
-(including objects) as "keys".  For the general case of fetching and storing
-items, however, you'll find the operations are C<O(1)>.  Behaviors which can
-affect the entire array are often C<O(N)>.
+Because we directly use the reference you pass to the constructor, you may wish
+to copy your data if you do not want it altered (the data are not altered
+except through the publicly available methods of this class).  
 
 =head1 EXPORT
 
 None.
 
-=head1 OVERLOADING
-
-Note that the boolean value of the object has been overloaded.  An empty array
-object will report false in boolean context:
-
- my $array = Array::AsHash->new;
- if ($array) {
-   # never gets here
- }
-
 =head1 CONSTRUCTOR
 
 =head2 new
 
+ my $array = Array::AsHash->new;
+ # or
  my $array = Array::AsHash->new( { array => \@array } );
 
 Returns a new C<Array::AsHash> object.  If an array is passed to C<new>, it
@@ -438,8 +535,8 @@ constructor to clone it for you.
 
  my $array = Array::AsHash->new(
     {
-        array => \@array,
-        clone => 1, # optional
+        array  => \@array,
+        clone  => 1,
     }
  );
 
@@ -452,6 +549,36 @@ Of course, you can simply create an empty object and it will still work.
 
  my $array = Array::AsHash->new;
  $array->put('foo', 'bar');
+
+You may also specify C<strict> mode in the constructor.
+
+ my @array = qw/foo bar one 1/;
+ my $array = Array::AsHash->new(
+    {
+        array  => \@array,
+        strict => 1,
+    }
+ );
+ print $array->get('foo'); # prints 'bar'
+ print $array->get('oen'); # croaks
+
+If you specify "strict" mode, the following methods will croak if they
+attempt to access a non-existent key:
+
+=over 4
+
+=item * get
+
+=item * put
+
+=item * get_pairs
+
+=item * delete
+
+=back
+
+In strict mode, instead of C<put>, you will want to use the C<add> method to
+add new keys to the array.
 
 =head1 HASH-LIKE METHODS
 
@@ -484,7 +611,8 @@ returned instead of an array reference.
  my $deleted = $array->delete($key); # returns the value for $key
  my $deleted = $array->delete($key1, $key2); # returns an array reference
 
-Non-existing keys will be silently ignored.
+Non-existing keys will be silently ignored unless you are in "strict" mode in which case
+non-existent keys are fatal.
 
 =head2 each
 
@@ -496,6 +624,15 @@ Lazily returns keys and values, in order, until no more are left.  Every time
 each() is called, will automatically increment to the next key value pair.  If
 no more key/value pairs are left, will reset itself to the first key/value
 pair.
+
+If called in scalar context, returns an I<iterator> which behaves the same way
+(except that the iterator will not return another iterator if called in scalar
+context).
+
+ my $each = $array->each;
+ while ( my ($key, $value) = $each->() ) {
+    # iterate over array like a hash
+ }
 
 As with a regular hash, if you do not iterate over all of the data, the internal
 pointer will be pointing at the I<next> key/value pair to be returned.  If you need
@@ -539,7 +676,19 @@ Returns true if the given C<$thing> exists in the array as a I<key>.
 
  my $value = $array->get($key);
 
-Returns the value associated with a given key, if any.
+Returns the value associated with a given key, if any.  If a single key is
+passed and the key does not exist, returns an empty list.  This means that
+the following can work correctly:
+
+ if (my @value = $array->get('no_such_key')) { ... }
+
+If passed more than one key, returns a list of values associated with those
+keys with C<undef> used for any key whose value does not exist.  That means
+the following will probably not work as expected:
+
+ if (my @value = $array->get('no_such_key1', 'no_such_key2') { ... }
+
+If using a strict hash, C<get> will croak if it encounters a non-existent key.
 
 =head2 put
 
@@ -547,6 +696,21 @@ Returns the value associated with a given key, if any.
 
 Sets the value for a given C<$key>.  If the key does not already exist, this
 pushes two elements onto the end of the array.
+
+Also accepts an even-sized list of key/value pairs:
+
+ $array->put(@kv_pairs);
+
+If using a strict hash, C<put> will croak if it encounters a non-existent key.
+You will have to use the C<add> method to add new keys.
+
+=head2 add
+
+ $array->add($key, $value);
+
+C<add> behaves exactly like C<put> except it can only be used for adding keys.
+Any attempt to C<add> an existing key will croak regardless of whether you are
+in strict mode or not.
 
 =head2 get_pairs
 
@@ -563,12 +727,26 @@ This method is useful for reordering an array.
  my @pairs  = $array->get_pairs(sort $array->keys);
  my $sorted = Array::AsHash->new({array => \@pairs});
 
+If using a strict hash, C<get_pairs> will croak if it encounters a non-existent
+key.
+
 =head2 default
 
  $array->default(@kv_pairs);
 
 Given an even-sized list of key/value pairs, each key which does not already exist
-in the array will be set to the corresponding value.
+in the array will be set to the corresponding value.  Keys which already exist will
+be silently ignored, even in strict mode.
+
+=head2 rename
+
+ $array->rename($old_key, $new_key);
+ $array->rename(@list_of_old_and_new_keys);
+
+Rename C<$old_key> to C<$new_key>.  Will croak if C<$old_key> does not exist,
+C<$new_key> already exists or C<$new_key> is undefined.
+
+Can take an even-sized list of old and new keys.
 
 =head2 hcount
 
@@ -649,9 +827,21 @@ Returns the number of elements in the array.
 
 Returns the I<aray index> of a given key, if the keys exists.
 
-=head1 OTHER METHODS
+=head1 MISCELLANEOUS METHODS
 
-The following methods really don't match the aforementioned categories.
+=head2 strict
+
+ if ($array->strict) {
+    ...
+ }
+ $array->strict(0); # turn off strict mode
+
+Getter/setter for validating strict mode.  If no arguments are passed,
+returns a boolean value indicating whether or not strict mode has been
+enabled for this array.
+
+If an argument is passed, sets strict mode for the array to the boolean
+value of the argument.
 
 =head2 get_array
 
@@ -673,6 +863,42 @@ array.
 Attempts to clone (deep copy) and return a new object.  This may fail if the 
 array contains objects which L<Clone> cannot handle.
 
+=head1 OVERLOADING
+
+The boolean value of the object has been overloaded.  An empty array
+object will report false in boolean context:
+
+ my $array = Array::AsHash->new;
+ if ($array) {
+   # never gets here
+ }
+
+The string value of the object has been overloaded to ease debugging.  When
+printing the reference, the output will be in the following format:
+
+ key1
+         value1
+ key2
+         value2
+ key3
+         value3
+
+This is a bit unusual but since this object is neither an array nor a hash, a
+somewhat unusual format has been chosen.
+
+=head1 CAVEATS
+
+Internally we keep the array an array.  This does mean that things might get a
+bit slow if you have a large array, but it also means that you can use
+references (including objects) as "keys".  For the general case of fetching and
+storing items you'll find the operations are C<O(1)>.  Behaviors which can
+affect the entire array are often C<O(N)>.
+
+We achieve C<O(1)> speed for most operations by internally keeping a hash of
+key indices.  This means that for common use, it's pretty fast.  If you're
+writing to the array a lot, it could be a bit slower for large arrays.  You've
+been warned.
+
 =head1 WHY NOT A TIED HASH?
 
 You may very well find that a tied hash fits your purposes better and there's
@@ -680,7 +906,7 @@ certainly nothing wrong with them.  Personally, I do not use tied variables
 unless absolutely necessary because ties are frequently buggy, they tend to be
 slow and they take a perfectly ordinary variable and make it hard to maintain.
 Return a tied variable and some poor maintenance programmer is just going to
-see an hash and they'll get awfully confused when their code isn't doing quite
+see a hash and they'll get awfully confused when their code isn't doing quite
 what they expect.
 
 Of course, this module provides a richer interface than a tied hash would, but

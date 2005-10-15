@@ -1,5 +1,19 @@
 Revision history for Array-AsHash
 
+0.20    2005-10-15
+        "strict' mode added.  Using non-existent keys is fatal.
+        "strict" method also added.
+        Reorganized the docs to be a bit cleaner.
+
+0.12    Not released (these are all in 0.20, though)
+        "put" can now accept an even-sized list of pairs.
+        "get" can now take a list of keys.
+        Did a bit of an internals cleanup.
+        each() now returns an iterator in scalar context
+            Thanks to Adrian Howard for the suggestion.
+        Added "rename" method.
+        Overloaded stringification as a debugging aid.
+
 0.11    2005-10-14
         Added "default" method.
         Added "get_pairs" method.

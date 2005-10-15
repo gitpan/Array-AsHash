@@ -1,6 +1,6 @@
 ---
 name: Array-AsHash
-version: 0.11
+version: 0.20
 author:
   - Curtis "Ovid" Poe <ovid@cpan.org>
 abstract: 'Treat arrays as a hashes, even if you need references for keys.'
@@ -15,5 +15,5 @@ requires:
 provides:
   Array::AsHash:
     file: lib/Array/AsHash.pm
-    version: 0.11
+    version: 0.20
 generated_by: Module::Build version 0.2702

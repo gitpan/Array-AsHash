@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-use Test::More tests => 117;
+use Test::More tests => 168;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
@@ -25,12 +25,12 @@ eval { $CLASS->new( { array => [ 1, 2, 3 ] } ) };
 like $@, qr/Uneven number of keys in array/,
   '... and passing an uneven number of array elements to new() should croak';
 
-ok defined( my $array = $CLASS->new ),
+ok defined( my $array = $CLASS->new ),  # must use defined as bool is overloaded
   'Calling new() without arguments should succeed';
 isa_ok $array, $CLASS, '... and the object it returns';
 
 can_ok $array, 'get';
-ok !defined $array->get('foo'), '... and non-existent keys should return undef';
+ok !defined $array->get('foo'), '... and non-existent keys should return false';
 ok !( my @foo = $array->get('foo') ),
   '... and should also work in list context';
 
@@ -64,6 +64,38 @@ is_deeply \@values, ['bar'],
 my $values = $array->values;
 is_deeply $values, ['bar'],
   '... calling it in scalar context should return an array ref';
+
+ok $array->put(qw/foo oof one 1 two 2/), 'We should be able to "put" multiple k/v pairs';
+is_deeply [ $array->get_array ], [ foo => 'oof', one => 1, two => 2 ],
+  '... and have the correct array set';
+
+@keys = $array->keys;
+is_deeply \@keys, [qw/foo one two/], '... and the correct keys set';
+
+@values = $array->values;
+is_deeply \@values, [qw/oof 1 2/], '... and the correct values set';
+
+# get in scalar and list contexts
+
+{
+    my $array = Array::AsHash->new( { array => [qw/one 1 two 2 three 3/] } );
+    ok my $first = $array->get('one'),
+      'Calling get in scalar context should succeed';
+    is $first, 1, '... and it should return the correct value';
+    ok my $list = $array->get(qw/one two/),
+      '... and calling it in scalar context with two keys should succeed';
+    is_deeply $list, [ 1, 2 ], '... and it should return an array reference';
+    ok my @list = $array->get(qw/one three/),
+      '... and calling it in list context should succeed';
+    is_deeply \@list, [ 1, 3 ], '... returning the correct value';
+
+    ok @list = $array->get(qw/one four/),
+      '... and calling it in list context and unknown keys should succeed';
+    is_deeply \@list, [ 1, undef ], '... returning the correct values';
+
+    @list = $array->get('one');
+    is_deeply \@list, [1], '... even if we only request one key';
+}
 
 # test uncloned arrays
 
@@ -180,6 +212,39 @@ is_deeply $values, ['bar'],
       '... and reset_each() should reset the each() iterator';
 }
 
+# test each() iterator
+
+{
+    my @array = qw/foo bar this that one 1/;
+    $array = $CLASS->new( { array => \@array, clone => 1 } );
+
+    my $count        = @array / 2;
+    my $actual_count = 0;
+    ok my $iter = $array->each,
+      'Calling each() in scalar context should return an iterator';
+    while ( my ( $k, $v ) = $iter->() ) {
+        my ( $k1, $v1 ) = splice @array, 0, 2;
+        is $k, $k1, '... and the key should be the same';
+        is $v, $v1, '... and the value should be the same';
+        $actual_count++;
+        last if $actual_count > $count;
+    }
+    is $actual_count, $count,
+      '... and each() should return the correct number of items';
+
+    @array = qw/foo bar this that one 1/;
+    $iter  = $array->each;
+    my ( $k, $v ) = $iter->();
+    is_deeply [ $k, $v ], [ @array[ 0, 1 ] ],
+      'After each() is finished, it should be automatically reset';
+
+    can_ok $array, 'reset_each';
+    $array->reset_each;
+    ( $k, $v ) = $iter->();
+    is_deeply [ $k, $v ], [ @array[ 0, 1 ] ],
+      '... and reset_each() should reset the each() iterator';
+}
+
 # test kv
 
 {
@@ -260,6 +325,16 @@ is_deeply $values, ['bar'],
     ok !$array, 'An empty array in boolean context should return false';
     $array->put( foo => 'bar' );
     ok $array, '... but it should return true if we add elements to it';
+
+    $array->unshift( this => [ 1, 2 ] );
+    my $to_string = <<'    END_TO_STRING';
+this
+        [1,2]
+foo
+        bar
+    END_TO_STRING
+    is "$array", $to_string,
+      '... and string overloading should be handled correctly';
 }
 
 # test cloning
@@ -287,19 +362,44 @@ is_deeply $values, ['bar'],
     ok !$array->last,
       '... and last should return false if we are not on the last "each" item';
 
-    $array->each;
+    # each() must be in list context or else it returns an iterator
+    my @each = $array->each;
     ok $array->first,
       '... and first should return true if we are on the first "each" item';
     ok !$array->last,
       '... and last should return false if we are not on the last "each" item';
 
-    $array->each;
+    @each = $array->each;
     ok !$array->first,
 '... and first should return false if we are not on the first "each" item';
     ok !$array->last,
       '... and last should return false if we are not on the last "each" item';
 
-    $array->each;
+    @each = $array->each;
+    ok !$array->first,
+'... and first should return false if we are not on the first "each" item';
+    ok $array->last,
+      '... and last should return true if we are on the last "each" item';
+
+    $array->reset_each;
+    ok !$array->first,
+'... and first should return false if we are not on the first "each" item';
+    ok !$array->last,
+      '... and last should return false if we are not on the last "each" item';
+
+    my $each = $array->each;
+    $each->();
+    ok $array->first, 'Calling first() after an each iterator should succeed';
+    ok !$array->last,
+      '... and last should return false if we are not on the last "each" item';
+
+    $each->();
+    ok !$array->first,
+'... and first should return false if we are not on the first "each" item';
+    ok !$array->last,
+      '... and last should return false if we are not on the last "each" item';
+
+    $each->();
     ok !$array->first,
 '... and first should return false if we are not on the first "each" item';
     ok $array->last,
@@ -340,16 +440,45 @@ is_deeply $values, ['bar'],
 
     $array->default( foo => 'Ovid' );
     is $array->get('foo'), 'bar',
-        '... and it should not override a key which exists';
-    $array->default(publius => 'Ovidius');
+      '... and it should not override a key which exists';
+    $array->default( publius => 'Ovidius' );
     ok $array->exists('publius'),
-        '... but it should create a key if it did not exist';
+      '... but it should create a key if it did not exist';
     is $array->get('publius'), 'Ovidius',
-        '... and it should be assigned the correct value';
+      '... and it should be assigned the correct value';
 
     $array = $CLASS->new;
     $array->default( one => 1, two => 2, three => 3 );
     my @array = $array->get_array;
     is_deeply \@array, [qw/ one 1 two 2 three 3/],
-        '... and we should be able to set multiple keys at once';
+      '... and we should be able to set multiple keys at once';
+}
+
+# test rename
+
+{
+    my $array = $CLASS->new( { array => [qw/foo bar one 1 two 2/] } );
+    can_ok $array, 'rename';
+    eval { $array->rename( no_such_key => 2, 3 ) };
+    like $@, qr/Arguments to Array::AsHash::rename must be an even-sized list/,
+      '... and passing an odd sized list should croak';
+    ok $array->rename( one => 'un' ), '... and renaming a key should work';
+    ok !$array->exists('one'), '... and the old key should not exist';
+    ok $array->exists('un'), '... and the new key should exist';
+    is $array->get('un'),    1, '... with the proper value';
+    is $array->aindex('un'), 2, '... in the proper position in the hash';
+    is_deeply scalar $array->keys, [qw/foo un two/],
+      '... and the new keys should be correct';
+
+    ok $array->rename( foo => 'oof', two => 'deux' );
+    ok !$array->exists('foo'), '... and the old key should not exist';
+    ok $array->exists('oof'), '... and the new key should exist';
+    is $array->get('oof'),    'bar', '... with the proper value';
+    is $array->aindex('oof'), 0, '... in the proper position in the hash';
+    ok !$array->exists('two'), '... and the old key should not exist';
+    ok $array->exists('deux'), '... and the new key should exist';
+    is $array->get('deux'),    2, '... with the proper value';
+    is $array->aindex('deux'), 4, '... in the proper position in the hash';
+    is_deeply scalar $array->keys, [qw/oof un deux/],
+      '... and the new keys should be correct';
 }

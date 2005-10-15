@@ -60,7 +60,7 @@ BEGIN {
       '... and attempting to insert before a non-existent key should croak';
 
     eval { $array->insert_before( 'this', qw/1 2 3/ ) };
-    like $@, qr/Arguments to insert must be an even-sized list/,
+    like $@, qr/Arguments to Array::AsHash::insert_before must be an even-sized list/,
       '... and we should not be able to insert an odd-sized list';
 
     eval { $array->insert_before( 'this', qw/foo asdf/ ) };
@@ -95,7 +95,7 @@ BEGIN {
       '... and attempting to insert after a non-existent key should croak';
 
     eval { $array->insert_after( 'this', qw/1 2 3/ ) };
-    like $@, qr/Arguments to insert must be an even-sized list/,
+    like $@, qr/Arguments to Array::AsHash::insert_after must be an even-sized list/,
       '... and we should not be able to insert an odd-sized list';
 
     eval { $array->insert_after( 'this', qw/foo asdf/ ) };
