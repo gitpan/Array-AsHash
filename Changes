@@ -1,5 +1,9 @@
 Revision history for Array-AsHash
 
+0.21    2005-10-15
+        Iterator is now object blessed into its own class.  This allows us
+        to call "first" and "last" methods directly on the object.
+
 0.20    2005-10-15
         "strict' mode added.  Using non-existent keys is fatal.
         "strict" method also added.

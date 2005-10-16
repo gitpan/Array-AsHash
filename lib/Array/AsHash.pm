@@ -6,7 +6,7 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.20';
+our $VERSION = '0.21';
 
 my ( $_bool, $_to_string );
 
@@ -138,8 +138,8 @@ use overload
 
     sub strict {
         my $self = shift;
-        return $is_strict{ident $self} unless @_;
-        $is_strict{ident $self} = !! shift;
+        return $is_strict{ ident $self} unless @_;
+        $is_strict{ ident $self} = !!shift;
         return $self;
     }
 
@@ -280,7 +280,18 @@ use overload
             return ( $key, $value );
         };
 
-        return wantarray ? $each->() : $each;
+        if (wantarray) {
+            return $each->();
+        }
+        else {
+            require Array::AsHash::Iterator;
+            return Array::AsHash::Iterator->new(
+                {
+                    parent   => $self,
+                    iterator => $each,
+                }
+            );
+        }
     }
     *kv = \&each;
 
@@ -306,7 +317,7 @@ use overload
         my $key      = $self->$_actual_key(CORE::shift);
         my @value;
 
-        my $ident  = ident $self;
+        my $ident = ident $self;
 
         if ( $self->exists($key) ) {
             my $index = $self->$_index($key);
@@ -371,12 +382,11 @@ use overload
             $key = $self->$_actual_key($key);
             next unless defined $key;
             my $exists = $self->exists($key);
-            if ( $is_strict{$ident} && ! $exists ) {
+            if ( $is_strict{$ident} && !$exists ) {
                 $self->$_croak("Cannot get non-existent key ($key)");
             }
-            if ( $exists ) {
-                CORE::push @get,
-                  $array_for{ $ident }[ $self->$_index($key) + 1 ];
+            if ($exists) {
+                CORE::push @get, $array_for{$ident}[ $self->$_index($key) + 1 ];
             }
             elsif ( @keys > 1 ) {
                 CORE::push @get, undef;
@@ -395,10 +405,10 @@ use overload
 
         my @pairs;
         foreach my $key (@keys) {
-            if ($self->exists($key)) {
+            if ( $self->exists($key) ) {
                 CORE::push @pairs, $key, $self->get($key);
             }
-            elsif ($is_strict{ident $self}) {
+            elsif ( $is_strict{ ident $self} ) {
                 $self->$_croak("Cannot get pair for non-existent key ($key)");
             }
         }
@@ -425,7 +435,7 @@ use overload
         for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
             my ( $key, $value ) = @pairs[ $i, $i + 1 ];
             $key = $self->$_actual_key($key);
-            if ($self->exists($key)) {
+            if ( $self->exists($key) ) {
                 $self->$_croak("Cannot add existing key ($key)");
             }
             my $index = $self->$_index($key);
@@ -444,7 +454,7 @@ use overload
         for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
             my ( $key, $value ) = @pairs[ $i, $i + 1 ];
             $key = $self->$_actual_key($key);
-            if (! $self->exists($key) && $is_strict{$ident}) {
+            if ( !$self->exists($key) && $is_strict{$ident} ) {
                 $self->$_croak("Cannot put a non-existent key ($key)");
             }
             my $index = $self->$_index($key);
@@ -471,7 +481,7 @@ Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.20
+Version 0.21
 
 =head1 SYNOPSIS
 
@@ -625,14 +635,16 @@ each() is called, will automatically increment to the next key value pair.  If
 no more key/value pairs are left, will reset itself to the first key/value
 pair.
 
-If called in scalar context, returns an I<iterator> which behaves the same way
-(except that the iterator will not return another iterator if called in scalar
-context).
+If called in scalar context, returns an L<Array::AsHash::Iterator> which
+behaves the same way (except that the iterator will not return another iterator
+if called in scalar context).
 
  my $each = $array->each;
- while ( my ($key, $value) = $each->() ) {
+ while ( my ($key, $value) = $each->next ) {
     # iterate over array like a hash
  }
+
+See the L<Array::AsHash::Iterator> object for available methods.
 
 As with a regular hash, if you do not iterate over all of the data, the internal
 pointer will be pointing at the I<next> key/value pair to be returned.  If you need

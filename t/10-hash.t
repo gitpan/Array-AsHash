@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-use Test::More tests => 168;
+use Test::More tests => 180;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
@@ -218,29 +218,50 @@ is_deeply \@values, [qw/oof 1 2/], '... and the correct values set';
     my @array = qw/foo bar this that one 1/;
     $array = $CLASS->new( { array => \@array, clone => 1 } );
 
-    my $count        = @array / 2;
-    my $actual_count = 0;
     ok my $iter = $array->each,
       'Calling each() in scalar context should return an iterator';
-    while ( my ( $k, $v ) = $iter->() ) {
+    isa_ok $iter, 'Array::AsHash::Iterator', '... and the object it returns';
+
+    can_ok $iter, 'next';    
+    can_ok $iter, 'first';    
+    can_ok $iter, 'last';    
+    my $count        = @array / 2;
+    my $actual_count = 0;
+    while ( my ( $k, $v ) = $iter->next ) {
+        $actual_count++;
         my ( $k1, $v1 ) = splice @array, 0, 2;
+        if (1 == $actual_count) {
+            ok $iter->first, '... and first should return true on the first kv pair';
+        }
+        else {
+            ok ! $iter->first, '... and first should return false on subsequent kv pairs';
+        }
         is $k, $k1, '... and the key should be the same';
         is $v, $v1, '... and the value should be the same';
-        $actual_count++;
+        if ($actual_count == $count) {
+            ok $iter->last, '... and last should return true on the last kv pair';
+        }
+        else {
+            ok ! $iter->last, '... and last should return false on kv pairs prior to the last';
+        }
         last if $actual_count > $count;
     }
     is $actual_count, $count,
       '... and each() should return the correct number of items';
 
+    can_ok $iter, 'parent';
+    is_deeply $iter->parent, $array,
+        '... and it should return the array which created the iterator';
+
     @array = qw/foo bar this that one 1/;
     $iter  = $array->each;
-    my ( $k, $v ) = $iter->();
+    my ( $k, $v ) = $iter->next;
     is_deeply [ $k, $v ], [ @array[ 0, 1 ] ],
       'After each() is finished, it should be automatically reset';
 
-    can_ok $array, 'reset_each';
-    $array->reset_each;
-    ( $k, $v ) = $iter->();
+    can_ok $iter, 'reset_each';
+    $iter->reset_each;
+    ( $k, $v ) = $iter->next;
     is_deeply [ $k, $v ], [ @array[ 0, 1 ] ],
       '... and reset_each() should reset the each() iterator';
 }
@@ -388,18 +409,18 @@ foo
       '... and last should return false if we are not on the last "each" item';
 
     my $each = $array->each;
-    $each->();
+    $each->next;
     ok $array->first, 'Calling first() after an each iterator should succeed';
     ok !$array->last,
       '... and last should return false if we are not on the last "each" item';
 
-    $each->();
+    $each->next;
     ok !$array->first,
 '... and first should return false if we are not on the first "each" item';
     ok !$array->last,
       '... and last should return false if we are not on the last "each" item';
 
-    $each->();
+    $each->next;
     ok !$array->first,
 '... and first should return false if we are not on the first "each" item';
     ok $array->last,
@@ -470,7 +491,8 @@ foo
     is_deeply scalar $array->keys, [qw/foo un two/],
       '... and the new keys should be correct';
 
-    ok $array->rename( foo => 'oof', two => 'deux' );
+    ok $array->rename( foo => 'oof', two => 'deux' ),
+        'We should be able to rename multiple keys';
     ok !$array->exists('foo'), '... and the old key should not exist';
     ok $array->exists('oof'), '... and the new key should exist';
     is $array->get('oof'),    'bar', '... with the proper value';
