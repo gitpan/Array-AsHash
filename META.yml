@@ -1,22 +1,8 @@
----
+--- #YAML:1.0
 name: Array-AsHash
-version: 0.21
+version: 0.30
 author:
-  - Curtis "Ovid" Poe <ovid@cpan.org>
-abstract: 'Treat arrays as a hashes, even if you need references for keys.'
+  - 'Curtis "Ovid" Poe <ovid@cpan.org>'
+abstract: "Treat arrays as a hashes, even if you need references for keys."
 license: perl
-resources:
-  license: http://dev.perl.org/licenses/
-requires:
-  Class::Std: 0
-  Clone: 0.18
-  Scalar::Util: 1.14
-  Test::More: 0
-provides:
-  Array::AsHash:
-    file: lib/Array/AsHash.pm
-    version: 0.21
-  Array::AsHash::Iterator:
-    file: lib/Array/AsHash/Iterator.pm
-    version: 0.01
-generated_by: Module::Build version 0.2702
+generated_by: Module::Build version 0.2704, without YAML.pm

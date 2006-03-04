@@ -4,7 +4,7 @@
 use warnings;
 use strict;
 
-use Test::More tests => 108;
+use Test::More tests => 119;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
@@ -23,20 +23,24 @@ BEGIN {
 {
     my $array = $CLASS->new;
     can_ok $array, qw/acount aindex hcount hindex/;
-    is $array->acount, 0, '... and an empty array should return an acount of zero';
-    is $array->hcount, 0, '... and an empty array should return an hcount of zero';
-    ok ! defined $array->aindex('baz'),
-        '... and non-existent items return an undefined aindex';
-    ok ! defined $array->hindex('baz'),
-        '... and non-existent items return an undefined hindex';
+    is $array->acount, 0,
+      '... and an empty array should return an acount of zero';
+    is $array->hcount, 0,
+      '... and an empty array should return an hcount of zero';
+    ok !defined $array->aindex('baz'),
+      '... and non-existent items return an undefined aindex';
+    ok !defined $array->hindex('baz'),
+      '... and non-existent items return an undefined hindex';
 
     $array->push(qw/baz quux foo bar/);
-    is $array->acount, 4, 'acount should return the correct number of elements in the array';
-    is $array->hcount, 2, '... and hcount should return the correct number of pairs';
+    is $array->acount, 4,
+      'acount should return the correct number of elements in the array';
+    is $array->hcount, 2,
+      '... and hcount should return the correct number of pairs';
     is $array->aindex('foo'), 2,
-        '... and aindex should return the array index of existing keys';
+      '... and aindex should return the array index of existing keys';
     is $array->hindex('foo'), 1,
-        '... and hindex should return the hash index of existing keys';
+      '... and hindex should return the hash index of existing keys';
 }
 
 # test cloning and insert_before
@@ -60,7 +64,8 @@ BEGIN {
       '... and attempting to insert before a non-existent key should croak';
 
     eval { $array->insert_before( 'this', qw/1 2 3/ ) };
-    like $@, qr/Arguments to Array::AsHash::insert_before must be an even-sized list/,
+    like $@,
+      qr/Arguments to Array::AsHash::insert_before must be an even-sized list/,
       '... and we should not be able to insert an odd-sized list';
 
     eval { $array->insert_before( 'this', qw/foo asdf/ ) };
@@ -95,7 +100,8 @@ BEGIN {
       '... and attempting to insert after a non-existent key should croak';
 
     eval { $array->insert_after( 'this', qw/1 2 3/ ) };
-    like $@, qr/Arguments to Array::AsHash::insert_after must be an even-sized list/,
+    like $@,
+      qr/Arguments to Array::AsHash::insert_after must be an even-sized list/,
       '... and we should not be able to insert an odd-sized list';
 
     eval { $array->insert_after( 'this', qw/foo asdf/ ) };
@@ -146,13 +152,15 @@ BEGIN {
       '... and calling it should succeed';
     is_deeply scalar $array->keys, [qw/foo baz/],
       '... and the new keys should be correct';
-    is_deeply scalar $array->values, [qw/bar quux/], '... as should the values';
+    is_deeply scalar $array->values, [qw/bar quux/],
+      '... as should the values';
 
     is $array->get('foo'), 'bar',
       '... and we should be able to get the new values';
     is $array->get('baz'), 'quux',
       '... and we should be able to get the new values';
-    ok $array->delete('foo'), 'we should be able to delete the unshifted keys';
+    ok $array->delete('foo'),
+      'we should be able to delete the unshifted keys';
     is_deeply scalar $array->keys, [qw/baz/],
       '... and the new keys should be correct';
     is_deeply scalar $array->values, [qw/quux/], '... as should the values';
@@ -176,7 +184,8 @@ BEGIN {
     is $array->get('some_key'), 'some_value',
       '... and we should be able to get the old values';
 
-    ok $array->delete('foo'), 'we should be able to delete the unshifted keys';
+    ok $array->delete('foo'),
+      'we should be able to delete the unshifted keys';
     is_deeply scalar $array->keys, [qw/baz some_key/],
       '... and the new keys should be correct';
     is_deeply scalar $array->values, [qw/quux some_value/],
@@ -194,10 +203,12 @@ BEGIN {
 {
     my $array = $CLASS->new;
     can_ok $array, 'push';
-    ok $array->push(qw/foo bar baz quux/), '... and calling it should succeed';
+    ok $array->push(qw/foo bar baz quux/),
+      '... and calling it should succeed';
     is_deeply scalar $array->keys, [qw/foo baz/],
       '... and the new keys should be correct';
-    is_deeply scalar $array->values, [qw/bar quux/], '... as should the values';
+    is_deeply scalar $array->values, [qw/bar quux/],
+      '... as should the values';
 
     is $array->get('foo'), 'bar',
       '... and we should be able to get the new values';
@@ -251,15 +262,15 @@ BEGIN {
     my $pair = $array->pop;
     is_deeply $pair, [ baz => 'quux' ],
       '... but a scalar pop on an array with values should succeed';
-    ok ! $array->exists('baz'), '... and the item should not exist';
-    ok ! $array->get('baz'), '... or be able to be gotten';
+    ok !$array->exists('baz'), '... and the item should not exist';
+    ok !$array->get('baz'),    '... or be able to be gotten';
     is $array->acount, 2, '... and we should only have two items left';
 
-    my ($k, $v) = $array->pop;
-    is_deeply [$k, $v], [foo => 'bar' ],
+    my ( $k, $v ) = $array->pop;
+    is_deeply [ $k, $v ], [ foo => 'bar' ],
       '... and a list pop on an array with values should succeed';
-    ok ! $array->exists('foo'), '... and the item should not exist';
-    ok ! $array->get('foo'), '... or be able to be gotten';
+    ok !$array->exists('foo'), '... and the item should not exist';
+    ok !$array->get('foo'),    '... or be able to be gotten';
     is $array->acount, 0, '... and the array should now be empty';
 }
 
@@ -275,14 +286,46 @@ BEGIN {
     my $pair = $array->shift;
     is_deeply $pair, [ baz => 'quux' ],
       '... but a scalar shift on an array with values should succeed';
-    ok ! $array->exists('baz'), '... and the item should not exist';
-    ok ! $array->get('baz'), '... or be able to be gotten';
+    ok !$array->exists('baz'), '... and the item should not exist';
+    ok !$array->get('baz'),    '... or be able to be gotten';
     is $array->acount, 2, '... and we should only have two items left';
 
-    my ($k, $v) = $array->shift;
-    is_deeply [$k, $v], [foo => 'bar' ],
+    my ( $k, $v ) = $array->shift;
+    is_deeply [ $k, $v ], [ foo => 'bar' ],
       '... and a list shift on an array with values should succeed';
-    ok ! $array->exists('foo'), '... and the item should not exist';
-    ok ! $array->get('foo'), '... or be able to be gotten';
+    ok !$array->exists('foo'), '... and the item should not exist';
+    ok !$array->get('foo'),    '... or be able to be gotten';
     is $array->acount, 0, '... and the array should now be empty';
+}
+
+# test fetching values and keys by index
+
+{
+    my $array = $CLASS->new;
+    $array->push(qw/baz quux foo bar this that/);
+
+    can_ok $array, 'key_at';
+    my @keys = qw/baz foo this/;
+    is_deeply [ map { $array->key_at($_) } 0 .. 2 ], \@keys,
+      '... and it should return the correct keys';
+    is_deeply [ map { $array->key_at($_) } -3 .. -1 ], \@keys,
+      '... even with negative indices';
+    my @indices = 0 .. 2;
+    is_deeply scalar $array->key_at(@indices), \@keys,
+      '... even with array slices';
+    is_deeply \@indices, [0 .. 2],
+      '... but it should not change the value of the original indices';
+
+    can_ok $array, 'value_at';
+    my @values = qw/quux bar that/;
+    is_deeply [ map { $array->value_at($_) } 0 .. 2 ], \@values,
+      '... and it should return the correct values';
+    is_deeply [ map { $array->value_at($_) } -3 .. -1 ], \@values,
+      '... even with negative indices';
+    is_deeply scalar $array->value_at(0 .. 2), \@values,
+      '... even with array slices';
+    is_deeply scalar $array->value_at(@indices), \@values,
+      '... even with array slices';
+    is_deeply \@indices, [0 .. 2],
+      '... but it should not change the value of the original indices';
 }

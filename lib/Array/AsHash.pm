@@ -6,7 +6,7 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.21';
+our $VERSION = '0.30';
 
 my ( $_bool, $_to_string );
 
@@ -311,6 +311,32 @@ use overload
         $self->$_insert( $key, 'after', $index, @_ );
     }
 
+    sub key_at {
+        my $self  = CORE::shift;
+        my $ident = ident $self;
+        my @keys;
+        foreach my $index (my @copy = @_) { # prevent aliasing
+            $index *= 2;
+            CORE::push @keys => $array_for{$ident}[$index];
+        }
+        return wantarray ? @keys
+            : 1 == @_    ? $keys[0]
+            :              \@keys;
+    }
+
+    sub value_at {
+        my $self  = CORE::shift;
+        my $ident = ident $self;
+        my @values;
+        foreach my $index (my @copy = @_) { # prevent aliasing
+            $index = $index * 2 + 1;
+            CORE::push @values => $array_for{$ident}[$index];
+        }
+        return wantarray ? @values
+            : 1 == @_    ? $values[0]
+            :              \@values;
+    }
+
     sub delete {
         my $self     = CORE::shift;
         my $num_args = @_;
@@ -481,7 +507,7 @@ Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.21
+Version 0.30
 
 =head1 SYNOPSIS
 
@@ -802,7 +828,7 @@ onto the front of the array.  Will croak if any of the keys already exists.
 
 =head2 push
 
- $array->unshift(@kv_pairs);
+ $array->push(@kv_pairs);
 
 Takes an even-sized list of key/value pairs and attempts to push them
 onto the end of the array.  Will croak if any of the keys already exists.
@@ -827,6 +853,26 @@ or if C<@kv_pairs> is not an even-sized list.
 
  $array->insert_after($key, this => 'that', one => 1);
 
+=head2 key_at
+
+ my $key  = $array->key_at($index);
+ my @keys = $array->key_at(@indices);
+
+This method takes a given index and returns the key for that index.  If passed
+a list of indices, returns all keys for those indices, just like an array
+slice.  If passed a single value, always returns a scalar.  Otherwise, returns
+an array ref in scalar context.
+
+=head2 value_at
+
+ my $value  = $array->value_at($index);
+ my @values = $array->value_at(@indices);
+
+This method takes a given index and returns the value for that index.  If
+passed a list of indices, returns all values for those indices, just like an
+array slice.  If passed a single value, always returns a scalar.  Otherwise,
+returns an array ref in scalar context.
+
 =head2 acount
 
  my $count = $array->acount;
@@ -837,7 +883,7 @@ Returns the number of elements in the array.
 
  my $count = $array->aindex('foo');
 
-Returns the I<aray index> of a given key, if the keys exists.
+Returns the I<array index> of a given key, if the keys exists.
 
 =head1 MISCELLANEOUS METHODS
 

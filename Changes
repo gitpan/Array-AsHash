@@ -1,5 +1,9 @@
 Revision history for Array-AsHash
 
+0.30    2006-03-02
+        Added key_at() and value_at() methods.
+        Minor documentation fixes.
+
 0.21    2005-10-15
         Iterator is now object blessed into its own class.  This allows us
         to call "first" and "last" methods directly on the object.
