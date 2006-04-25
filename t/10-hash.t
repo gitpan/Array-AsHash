@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-use Test::More tests => 180;
+use Test::More tests => 189;
 #use Test::More qw/no_plan/;
 
 my $CLASS;
@@ -503,4 +503,20 @@ foo
     is $array->aindex('deux'), 4, '... in the proper position in the hash';
     is_deeply scalar $array->keys, [qw/oof un deux/],
       '... and the new keys should be correct';
+}
+
+# test clear
+
+{
+    my $array = $CLASS->new( { array => [qw/foo bar one 1 two 2/] } );
+    can_ok $array, 'clear';
+    is $array->get('foo'), 'bar', '"foo" should be set to "bar"';
+    is $array->hcount, 3, 'There should be three hash items';
+    is $array->acount, 6, 'There should be six array items';
+    ok overload::StrVal($array->clear), 'Clear the array';
+    is $array->get('foo'), undef, '"foo" should be undefined';
+    ok !$array->exists('foo'), '"foo" should not exist';
+    is $array->hcount, 0, 'There should be no hash items';
+    is $array->acount, 0, 'There should be no array items';
+
 }

@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name: Array-AsHash
-version: 0.30
+version: 0.31
 author:
   - 'Curtis "Ovid" Poe <ovid@cpan.org>'
 abstract: "Treat arrays as a hashes, even if you need references for keys."

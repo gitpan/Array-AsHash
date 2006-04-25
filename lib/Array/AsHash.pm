@@ -6,7 +6,7 @@ use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.30';
+our $VERSION = '0.31';
 
 my ( $_bool, $_to_string );
 
@@ -178,7 +178,7 @@ use overload
         for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
             my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
             if ( $self->exists($key) ) {
-                $self->$_croak("Cannot unshift an existing key ($key)");
+                $self->$_croak("Cannot push an existing key ($key)");
             }
             $index_of{$ident}{$key} = @array + $i;
         }
@@ -367,6 +367,16 @@ use overload
           : $value[0];
     }
 
+    sub clear {
+        my $self = CORE::shift;
+        my $ident = ident $self;
+        for my $spec (\%index_of, \%current_index_for, \%curr_key_of) {
+            $spec->{$ident} = undef;
+        }
+        @{ $array_for{$ident} } = ();
+        return $self;
+    }
+
     sub exists {
         my ( $self, $key ) = @_;
         $key = $self->$_actual_key($key);
@@ -507,7 +517,7 @@ Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.30
+Version 0.31
 
 =head1 SYNOPSIS
 
@@ -649,6 +659,12 @@ returned instead of an array reference.
 
 Non-existing keys will be silently ignored unless you are in "strict" mode in which case
 non-existent keys are fatal.
+
+=head3 clear
+
+  $array->clear;
+
+Clears all of the values from the array.
 
 =head2 each
 

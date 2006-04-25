@@ -1,5 +1,9 @@
 Revision history for Array-AsHash
 
+0.31    2006-04-25
+        Added "clear()" method (David Wheeler).
+        Fixed doc typo in "push()" (David Wheeler).
+
 0.30    2006-03-02
         Added key_at() and value_at() methods.
         Minor documentation fixes.
