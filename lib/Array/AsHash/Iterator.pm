@@ -3,38 +3,46 @@ package Array::AsHash::Iterator;
 use strict;
 use warnings;
 
-use Class::Std;
+our $VERSION = '0.02';
 
-our $VERSION = '0.01';
+#    my $iterator = Array::AsHash->new({array => \@array})->each;
+sub new {
+    my $class = shift;
+    my $self = $class->_initialize(@_);
+    return $self;
+}
 
-{
-    my %parent_of    :ATTR( :init_arg<parent> );
-    my %iterator_for :ATTR( :init_arg<iterator> );
+sub _initialize {
+    my ( $class, $arg_for ) = @_;
+    my $self = bless {
+        parent_of    => $arg_for->{parent},
+        iterator_for => $arg_for->{iterator},
+    } => $class;
+}
 
-    sub next {
-        my $self = shift;
-        return $iterator_for{ident $self}->();
-    }
+sub next {
+    my $self = shift;
+    return $self->{iterator_for}->();
+}
 
-    sub first {
-        my $self = shift;
-        return $parent_of{ident $self}->first;
-    }
+sub first {
+    my $self = shift;
+    return $self->parent->first;
+}
 
-    sub last {
-        my $self = shift;
-        return $parent_of{ident $self}->last;
-    }
+sub last {
+    my $self = shift;
+    return $self->parent->last;
+}
 
-    sub reset_each {
-        my $self = shift;
-        return $parent_of{ident $self}->reset_each;
-    }
+sub reset_each {
+    my $self = shift;
+    return $self->parent->reset_each;
+}
 
-    sub parent {
-        my $self = shift;
-        return $parent_of{ident $self};
-    }
+sub parent {
+    my $self = shift;
+    return $self->{parent_of};
 }
 
 1;
@@ -46,7 +54,7 @@ Array::AsHash::Iterator - Iterator object for L<Array::AsHash>
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =head1 SYNOPSIS
 
@@ -61,13 +69,20 @@ Version 0.01
 =head1 DESCRIPTION
 
 This is the iterator returned by the C<Array::AsHash::each> method.  Do not
-instantiate this class directly, it won't work.
+use directly.
 
 =head1 EXPORT
 
 None.
 
 =head1 METHODS
+
+=head2 new
+
+ my $iterator = Array::AsHash::Iterator->new({
+     parent => $array_as_hash_object,
+     iterator => $array_as_hash_object_internal_iterator,
+ });
 
 =head2 next
 

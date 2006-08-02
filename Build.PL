@@ -8,7 +8,6 @@ my $builder = Module::Build->new(
     dist_author       => 'Curtis "Ovid" Poe <ovid@cpan.org>',
     dist_version_from => 'lib/Array/AsHash.pm',
     requires          => {
-        'Class::Std'   => 0,
         'Clone'        => 0.18,
         'Scalar::Util' => 1.14,
         'Test::More'   => 0,

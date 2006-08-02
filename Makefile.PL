@@ -5,7 +5,6 @@ WriteMakefile
   'NAME' => 'Array::AsHash',
   'VERSION_FROM' => 'lib/Array/AsHash.pm',
   'PREREQ_PM' => {
-    'Class::Std' => '0',
     'Clone' => '0.18',
     'Scalar::Util' => '1.14',
     'Test::More' => '0'

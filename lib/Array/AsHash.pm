@@ -2,21 +2,24 @@ package Array::AsHash;
 
 use warnings;
 use strict;
-use Class::Std;
 use Clone ();
 use Scalar::Util qw(refaddr);
 
-our $VERSION = '0.31';
+our $VERSION = '0.32';
 
 my ( $_bool, $_to_string );
 
 BEGIN {
+
+    # these are defined in a BEGIN block because otherwise, overloading
+    # doesn't get them in time.
     $_bool = sub {
         my $self = CORE::shift;
         return $self->acount;
     };
 
     $_to_string = sub {
+        no warnings 'once';
         require Data::Dumper;
         local $Data::Dumper::Indent = 0;
         local $Data::Dumper::Terse  = 1;
@@ -24,6 +27,7 @@ BEGIN {
         my $string = '';
         return $string unless $self;
         while ( my ( $k, $v ) = $self->each ) {
+
             foreach ( $k, $v ) {
                 $_ = ref $_ ? Data::Dumper::Dumper($_) : $_;
             }
@@ -33,479 +37,466 @@ BEGIN {
     };
 }
 
-use overload
-  bool     => $_bool,
-  '""'     => $_to_string,
-  fallback => 1;
+use overload bool => $_bool, '""' => $_to_string, fallback => 1;
 
-{
-    my ( %index_of, %array_for, %current_index_for, %curr_key_of, %is_strict )
-      : ATTRS;
+my $_actual_key = sub {
+    my ( $self, $key ) = @_;
+    if ( ref $key ) {
+        my $new_key = $self->{curr_key_of}{ refaddr $key};
+        return refaddr $key unless defined $new_key;
+        $key = $new_key;
+    }
+    return $key;
+};
 
-    my $_croak = sub {
-        my ( $proto, $message ) = @_;
-        require Carp;
-        Carp::croak($message);
-    };
+# private because it doesn't match expectations.  The "index" of a
+# non-existent key is one greater than the current list
+my $_index = sub {
+    my ( $self, $key ) = @_;
+    my $index =
+        $self->exists($key)
+      ? $self->{index_of}{$key}
+      : scalar @{ $self->{array_for} };    # automatically one greater
+    return $index;
+};
 
-    my $_validate_kv_pairs = sub {
-        my ( $self, $arg_for ) = @_;
-        my $sub = $arg_for->{sub} || ( caller(1) )[3];
+my $_croak = sub {
+    my ( $proto, $message ) = @_;
+    require Carp;
+    Carp::croak($message);
+};
 
-        if ( @{ $arg_for->{pairs} } % 2 ) {
-            $self->$_croak("Arguments to $sub must be an even-sized list");
-        }
-    };
+my $_validate_kv_pairs = sub {
+    my ( $self, $arg_for ) = @_;
+    my $sub = $arg_for->{sub} || ( caller(1) )[3];
 
-    my $_actual_key = sub {
-        my ( $self, $key ) = @_;
+    if ( @{ $arg_for->{pairs} } % 2 ) {
+        $self->$_croak("Arguments to $sub must be an even-sized list");
+    }
+};
+
+sub new {
+    my $class = shift;
+    return $class->_initialize(@_);
+}
+
+sub _initialize {
+    my ( $class, $arg_ref ) = @_;
+    my $self = bless {} => $class;
+    $self->{array_for} = [];
+    return $self unless $arg_ref;
+    my $array = $arg_ref->{array} || [];
+    $self->{is_strict} = $arg_ref->{strict};
+    $array = Clone::clone($array) if $arg_ref->{clone};
+
+    unless ( 'ARRAY' eq ref $array ) {
+        $class->$_croak('Argument to new() must be an array reference');
+    }
+    if ( @$array % 2 ) {
+        $class->$_croak('Uneven number of keys in array');
+    }
+
+    $self->{array_for} = $array;
+    foreach ( my $i = 0; $i < @$array; $i += 2 ) {
+        my $key = $array->[$i];
+        $self->{index_of}{$key} = $i;
         if ( ref $key ) {
-            my $new_key = $curr_key_of{ ident $self}{ refaddr $key};
-            return refaddr $key unless defined $new_key;
-            $key = $new_key;
+            my $old_address = refaddr $arg_ref->{array}[$i];
+            my $curr_key    = "$key";
+            $self->{curr_key_of}{$old_address} = $curr_key;
         }
-        return $key;
-    };
+    }
+    return $self;
+}
 
-    my $_insert = sub {
-        my ( $self, $key, $label, $index ) = splice @_, 0, 4;
-
-        $self->$_validate_kv_pairs(
-            { pairs => \@_, sub => "Array::AsHash::insert_$label" } );
+sub get {
+    my ( $self, @keys ) = @_;
+    my @get;
+    foreach my $key (@keys) {
         $key = $self->$_actual_key($key);
-
-        unless ( $self->exists($key) ) {
-            $self->$_croak("Cannot insert $label non-existent key ($key)");
+        next unless defined $key;
+        my $exists = $self->exists($key);
+        if ( $self->{is_strict} && !$exists ) {
+            $self->$_croak("Cannot get non-existent key ($key)");
         }
-        my $ident = ident $self;
-        foreach ( my $i = 0 ; $i < @_ ; $i += 2 ) {
-            my $new_key = $_[$i];
-            if ( $self->exists($new_key) ) {
-                $self->$_croak("Cannot insert duplicate key ($new_key)");
-            }
-            $index_of{$ident}{$new_key} = $index + $i;
+        if ($exists) {
+            CORE::push @get, $self->{array_for}[ $self->$_index($key) + 1 ];
         }
-
-        my @tail = splice @{ $array_for{$ident} }, $index;
-        push @{ $array_for{$ident} }, @_, @tail;
-        my %seen = @_;
-        foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
-            if ( $index_of{$ident}{$curr_key} >= $index
-                && !exists $seen{$curr_key} )
-            {
-                $index_of{$ident}{$curr_key} += @_;
-            }
+        elsif ( @keys > 1 ) {
+            CORE::push @get, undef;
         }
-        return $self;
-    };
-
-    # private because it doesn't match expectations.  The "index" of a
-    # non-existent key is one greater than the current list
-    my $_index = sub {
-        my ( $self, $key ) = @_;
-        my $ident = ident $self;
-        my $index =
-          $self->exists($key)
-          ? $index_of{$ident}{$key}
-          : scalar @{ $array_for{$ident} };    # automatically one greater
-        return $index;
-    };
-
-    sub BUILD {
-        my ( $class, $ident, $arg_ref ) = @_;
-        my $array = $arg_ref->{array} || [];
-        $is_strict{$ident} = $arg_ref->{strict};
-        $array = Clone::clone($array) if $arg_ref->{clone};
-
-        unless ( 'ARRAY' eq ref $array ) {
-            $class->$_croak('Argument to new() must be an array reference');
-        }
-        if ( @$array % 2 ) {
-            $class->$_croak('Uneven number of keys in array');
-        }
-
-        $array_for{$ident} = $array;
-        foreach ( my $i = 0 ; $i < @$array ; $i += 2 ) {
-            my $key = $array->[$i];
-            $index_of{$ident}{$key} = $i;
-            if ( ref $key ) {
-                my $old_address = refaddr $arg_ref->{array}[$i];
-                my $curr_key    = "$key";
-                $curr_key_of{$ident}{$old_address} = $curr_key;
-            }
+        else {
+            return;
         }
     }
+    return wantarray ? @get
+      : @keys > 1    ? \@get
+      : $get[0];
+}
 
-    sub strict {
-        my $self = shift;
-        return $is_strict{ ident $self} unless @_;
-        $is_strict{ ident $self} = !!shift;
-        return $self;
+my $_insert = sub {
+    my ( $self, $key, $label, $index ) = splice @_, 0, 4;
+
+    $self->$_validate_kv_pairs(
+        { pairs => \@_, sub => "Array::AsHash::insert_$label" } );
+    $key = $self->$_actual_key($key);
+
+    unless ( $self->exists($key) ) {
+        $self->$_croak("Cannot insert $label non-existent key ($key)");
+    }
+    foreach ( my $i = 0; $i < @_; $i += 2 ) {
+        my $new_key = $_[$i];
+        if ( $self->exists($new_key) ) {
+            $self->$_croak("Cannot insert duplicate key ($new_key)");
+        }
+        $self->{index_of}{$new_key} = $index + $i;
     }
 
-    sub clone {
-        my $self = CORE::shift;
-        return ( ref $self )->new(
-            {
-                array => scalar $self->get_array,
-                clone => 1,
+    my @tail = splice @{ $self->{array_for} }, $index;
+    push @{ $self->{array_for} }, @_, @tail;
+    my %seen = @_;
+    foreach my $curr_key ( CORE::keys %{ $self->{index_of} } ) {
+        if ( $self->{index_of}{$curr_key} >= $index
+            && !exists $seen{$curr_key} )
+        {
+            $self->{index_of}{$curr_key} += @_;
+        }
+    }
+    return $self;
+};
+
+sub strict {
+    my $self = shift;
+    return $self->{is_strict} unless @_;
+    $self->{is_strict} = !!shift;
+    return $self;
+}
+
+sub clone {
+    my $self = CORE::shift;
+    return ( ref $self )->new(
+        {   array => scalar $self->get_array,
+            clone => 1,
+        }
+    );
+}
+
+sub unshift {
+    my ( $self, @kv_pairs ) = @_;
+    $self->$_validate_kv_pairs( { pairs => \@kv_pairs } );
+    foreach my $curr_key ( CORE::keys %{ $self->{index_of} } ) {
+        $self->{index_of}{$curr_key} += @kv_pairs;
+    }
+    for ( my $i = 0; $i < @kv_pairs; $i += 2 ) {
+        my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
+        if ( $self->exists($key) ) {
+            $self->$_croak("Cannot unshift an existing key ($key)");
+        }
+        $self->{index_of}{$key} = $i;
+    }
+    unshift @{ $self->{array_for} }, @kv_pairs;
+}
+
+sub push {
+    my ( $self, @kv_pairs ) = @_;
+    $self->$_validate_kv_pairs( { pairs => \@kv_pairs } );
+    my @array = $self->get_array;
+    for ( my $i = 0; $i < @kv_pairs; $i += 2 ) {
+        my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
+        if ( $self->exists($key) ) {
+            $self->$_croak("Cannot push an existing key ($key)");
+        }
+        $self->{index_of}{$key} = @array + $i;
+    }
+    CORE::push @{ $self->{array_for} }, @kv_pairs;
+}
+
+sub pop {
+    my $self = shift;
+    return unless $self;
+    my ( $key, $value ) = splice @{ $self->{array_for} }, -2;
+    delete $self->{index_of}{$key};
+    return wantarray ? ( $key, $value ) : [ $key, $value ];
+}
+
+sub shift {
+    my $self = CORE::shift;
+    return unless $self;
+    foreach my $curr_key ( CORE::keys %{ $self->{index_of} } ) {
+        $self->{index_of}{$curr_key} -= 2;
+    }
+    my ( $key, $value ) = splice @{ $self->{array_for} }, 0, 2;
+    delete $self->{index_of}{$key};
+    return wantarray ? ( $key, $value ) : [ $key, $value ];
+}
+
+sub hcount {
+    my $self  = CORE::shift;
+    my $count = $self->acount;
+    return $count / 2;
+}
+
+sub acount {
+    my $self  = CORE::shift;
+    my @array = $self->get_array;
+    return scalar @array;
+}
+
+sub hindex {
+    my $self  = CORE::shift;
+    my $index = $self->aindex(CORE::shift);
+    return defined $index ? $index / 2 : ();
+}
+
+sub aindex {
+    my $self = CORE::shift;
+    my $key  = $self->$_actual_key(CORE::shift);
+    return unless $self->exists($key);
+    return $self->$_index($key);
+}
+
+sub keys {
+    my $self  = CORE::shift;
+    my @array = $self->get_array;
+    my @keys;
+    for ( my $i = 0; $i < @array; $i += 2 ) {
+        CORE::push @keys, $array[$i];
+    }
+    return wantarray ? @keys : \@keys;
+}
+
+sub values {
+    my $self  = CORE::shift;
+    my @array = $self->get_array;
+    my @values;
+    for ( my $i = 1; $i < @array; $i += 2 ) {
+        CORE::push @values, $array[$i];
+    }
+    return wantarray ? @values : \@values;
+}
+
+sub first {
+    my $self  = CORE::shift;
+    my $index = $self->{current_index_for};
+    return defined $index && 2 == $index;
+}
+
+sub last {
+    my $self  = CORE::shift;
+    my $index = $self->{current_index_for};
+    return defined $index && $self->acount == $index;
+}
+
+sub each {
+    my $self = CORE::shift;
+
+    my $each = sub {
+        my $index = $self->{current_index_for} || 0;
+        my @array = $self->get_array;
+        if ( $index >= @array ) {
+            $self->reset_each;
+            return;
+        }
+        my ( $key, $value ) = @array[ $index, $index + 1 ];
+        no warnings 'uninitialized';
+        $self->{current_index_for} += 2;
+        return ( $key, $value );
+    };
+
+    if (wantarray) {
+        return $each->();
+    }
+    else {
+        require Array::AsHash::Iterator;
+        return Array::AsHash::Iterator->new(
+            {   parent   => $self,
+                iterator => $each,
             }
         );
     }
+}
+{
+    no warnings 'once';
+    *kv = \&each;
+}
 
-    sub unshift {
-        my ( $self, @kv_pairs ) = @_;
-        $self->$_validate_kv_pairs( { pairs => \@kv_pairs } );
-        my $ident = ident $self;
-        foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
-            $index_of{$ident}{$curr_key} += @kv_pairs;
-        }
-        for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
-            my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
-            if ( $self->exists($key) ) {
-                $self->$_croak("Cannot unshift an existing key ($key)");
+sub reset_each { CORE::shift->{current_index_for} = undef }
+
+sub insert_before {
+    my $self  = CORE::shift;
+    my $key   = CORE::shift;
+    my $index = $self->$_index($key);
+    $self->$_insert( $key, 'before', $index, @_ );
+}
+
+sub insert_after {
+    my $self  = CORE::shift;
+    my $key   = CORE::shift;
+    my $index = $self->$_index($key) + 2;
+    $self->$_insert( $key, 'after', $index, @_ );
+}
+
+sub key_at {
+    my $self = CORE::shift;
+    my @keys;
+    foreach my $index ( my @copy = @_ ) {    # prevent aliasing
+        $index *= 2;
+        CORE::push @keys => $self->{array_for}[$index];
+    }
+    return wantarray ? @keys
+      : 1 == @_      ? $keys[0]
+      : \@keys;
+}
+
+sub value_at {
+    my $self = CORE::shift;
+    my @values;
+    foreach my $index ( my @copy = @_ ) {    # prevent aliasing
+        $index = $index * 2 + 1;
+        CORE::push @values => $self->{array_for}[$index];
+    }
+    return wantarray ? @values
+      : 1 == @_      ? $values[0]
+      : \@values;
+}
+
+sub delete {
+    my $self     = CORE::shift;
+    my $num_args = @_;
+    my $key      = $self->$_actual_key(CORE::shift);
+    my @value;
+
+    if ( $self->exists($key) ) {
+        my $index = $self->$_index($key);
+        delete $self->{index_of}{$key};
+        my ( undef, $value ) = splice @{ $self->{array_for} }, $index, 2;
+        CORE::push @value, $value;
+        foreach my $curr_key ( CORE::keys %{ $self->{index_of} } ) {
+            if ( $self->{index_of}{$curr_key} >= $index ) {
+                $self->{index_of}{$curr_key} -= 2;
             }
-            $index_of{$ident}{$key} = $i;
         }
-        unshift @{ $array_for{$ident} }, @kv_pairs;
     }
+    elsif ( $self->{is_strict} ) {
+        $self->$_croak("Cannot delete non-existent key ($key)");
+    }
+    if (@_) {
+        CORE::push @value, $self->delete(@_);
+    }
+    return wantarray  ? @value
+      : $num_args > 1 ? \@value
+      : $value[0];
+}
 
-    sub push {
-        my ( $self, @kv_pairs ) = @_;
-        $self->$_validate_kv_pairs( { pairs => \@kv_pairs } );
-        my $ident = ident $self;
-        my @array = $self->get_array;
-        for ( my $i = 0 ; $i < @kv_pairs ; $i += 2 ) {
-            my ( $key, $value ) = @kv_pairs[ $i, $i + 1 ];
-            if ( $self->exists($key) ) {
-                $self->$_croak("Cannot push an existing key ($key)");
-            }
-            $index_of{$ident}{$key} = @array + $i;
+sub clear {
+    my $self = CORE::shift;
+    for my $spec (qw<index_of current_index_for curr_key_of>) {
+        $self->{$spec} = undef;
+    }
+    @{ $self->{array_for} } = ();
+    return $self;
+}
+
+sub exists {
+    my ( $self, $key ) = @_;
+    $key = $self->$_actual_key($key);
+    return unless defined $key;
+
+    return exists $self->{index_of}{$key};
+}
+
+sub rename {
+    my ( $self, @pairs ) = @_;
+    $self->$_validate_kv_pairs( { pairs => \@pairs } );
+
+    foreach ( my $i = 0; $i < @pairs; $i += 2 ) {
+        my ( $old, $new ) = @pairs[ $i, $i + 1 ];
+        unless ( $self->exists($old) ) {
+            $self->$_croak("Cannot rename non-existent key ($old)");
         }
-        CORE::push @{ $array_for{ ident $self} }, @kv_pairs;
-    }
-
-    sub pop {
-        my $self = shift;
-        return unless $self;
-        my $ident = ident $self;
-        my ( $key, $value ) = splice @{ $array_for{$ident} }, -2;
-        delete $index_of{$ident}{$key};
-        return wantarray ? ( $key, $value ) : [ $key, $value ];
-    }
-
-    sub shift {
-        my $self = CORE::shift;
-        return unless $self;
-        my $ident = ident $self;
-        foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
-            $index_of{$ident}{$curr_key} -= 2;
+        unless ( defined $new ) {
+            $self->$_croak("Cannot rename ($old) to an undefined value");
         }
-        my ( $key, $value ) = splice @{ $array_for{$ident} }, 0, 2;
-        delete $index_of{$ident}{$key};
-        return wantarray ? ( $key, $value ) : [ $key, $value ];
-    }
-
-    sub hcount {
-        my $self  = CORE::shift;
-        my $count = $self->acount;
-        return $count / 2;
-    }
-
-    sub acount {
-        my $self  = CORE::shift;
-        my @array = $self->get_array;
-        return scalar @array;
-    }
-
-    sub hindex {
-        my $self  = CORE::shift;
-        my $index = $self->aindex(CORE::shift);
-        return defined $index ? $index / 2 : ();
-    }
-
-    sub aindex {
-        my $self = CORE::shift;
-        my $key  = $self->$_actual_key(CORE::shift);
-        return unless $self->exists($key);
-        return $self->$_index($key);
-    }
-
-    sub keys {
-        my $self  = CORE::shift;
-        my @array = $self->get_array;
-        my @keys;
-        for ( my $i = 0 ; $i < @array ; $i += 2 ) {
-            CORE::push @keys, $array[$i];
-        }
-        return wantarray ? @keys : \@keys;
-    }
-
-    sub values {
-        my $self  = CORE::shift;
-        my @array = $self->get_array;
-        my @values;
-        for ( my $i = 1 ; $i < @array ; $i += 2 ) {
-            CORE::push @values, $array[$i];
-        }
-        return wantarray ? @values : \@values;
-    }
-
-    sub first {
-        my $self  = CORE::shift;
-        my $index = $current_index_for{ ident $self};
-        return defined $index && 2 == $index;
-    }
-
-    sub last {
-        my $self  = CORE::shift;
-        my $index = $current_index_for{ ident $self};
-        return defined $index && $self->acount == $index;
-    }
-
-    sub each {
-        my $self  = CORE::shift;
-        my $ident = ident $self;
-
-        my $each = sub {
-            my $index = $current_index_for{$ident} || 0;
-            my @array = $self->get_array;
-            if ( $index >= @array ) {
-                $self->reset_each;
-                return;
-            }
-            my ( $key, $value ) = @array[ $index, $index + 1 ];
-            no warnings 'uninitialized';
-            $current_index_for{$ident} += 2;
-            return ( $key, $value );
-        };
-
-        if (wantarray) {
-            return $each->();
-        }
-        else {
-            require Array::AsHash::Iterator;
-            return Array::AsHash::Iterator->new(
-                {
-                    parent   => $self,
-                    iterator => $each,
-                }
+        if ( $self->exists($new) ) {
+            $self->$_croak(
+                "Cannot rename ($old) to an key which already exists ($new)"
             );
         }
+        my $index = delete $self->{index_of}{$old};
+        $self->{index_of}{$new} = $index;
+        $self->{array_for}[$index] = $new;
     }
-    *kv = \&each;
+    return $self;
+}
 
-    sub reset_each { $current_index_for{ ident CORE::shift } = undef }
+sub get_pairs {
+    my ( $self, @keys ) = @_;
 
-    sub insert_before {
-        my $self  = CORE::shift;
-        my $key   = CORE::shift;
-        my $index = $self->$_index($key);
-        $self->$_insert( $key, 'before', $index, @_ );
-    }
-
-    sub insert_after {
-        my $self  = CORE::shift;
-        my $key   = CORE::shift;
-        my $index = $self->$_index($key) + 2;
-        $self->$_insert( $key, 'after', $index, @_ );
-    }
-
-    sub key_at {
-        my $self  = CORE::shift;
-        my $ident = ident $self;
-        my @keys;
-        foreach my $index (my @copy = @_) { # prevent aliasing
-            $index *= 2;
-            CORE::push @keys => $array_for{$ident}[$index];
-        }
-        return wantarray ? @keys
-            : 1 == @_    ? $keys[0]
-            :              \@keys;
-    }
-
-    sub value_at {
-        my $self  = CORE::shift;
-        my $ident = ident $self;
-        my @values;
-        foreach my $index (my @copy = @_) { # prevent aliasing
-            $index = $index * 2 + 1;
-            CORE::push @values => $array_for{$ident}[$index];
-        }
-        return wantarray ? @values
-            : 1 == @_    ? $values[0]
-            :              \@values;
-    }
-
-    sub delete {
-        my $self     = CORE::shift;
-        my $num_args = @_;
-        my $key      = $self->$_actual_key(CORE::shift);
-        my @value;
-
-        my $ident = ident $self;
-
+    my @pairs;
+    foreach my $key (@keys) {
         if ( $self->exists($key) ) {
-            my $index = $self->$_index($key);
-            delete $index_of{$ident}{$key};
-            my ( undef, $value ) = splice @{ $array_for{$ident} }, $index, 2;
-            CORE::push @value, $value;
-            foreach my $curr_key ( CORE::keys %{ $index_of{$ident} } ) {
-                if ( $index_of{$ident}{$curr_key} >= $index ) {
-                    $index_of{$ident}{$curr_key} -= 2;
-                }
-            }
+            CORE::push @pairs, $key, $self->get($key);
         }
-        elsif ( $is_strict{$ident} ) {
-            $self->$_croak("Cannot delete non-existent key ($key)");
+        elsif ( $self->{is_strict} ) {
+            $self->$_croak("Cannot get pair for non-existent key ($key)");
         }
-        if (@_) {
-            CORE::push @value, $self->delete(@_);
-        }
-        return wantarray  ? @value
-          : $num_args > 1 ? \@value
-          : $value[0];
     }
+    return wantarray ? @pairs : \@pairs;
+}
 
-    sub clear {
-        my $self = CORE::shift;
-        my $ident = ident $self;
-        for my $spec (\%index_of, \%current_index_for, \%curr_key_of) {
-            $spec->{$ident} = undef;
-        }
-        @{ $array_for{$ident} } = ();
-        return $self;
+sub default {
+    my ( $self, @pairs ) = @_;
+    $self->$_validate_kv_pairs( { pairs => \@pairs } );
+
+    for ( my $i = 0; $i < @pairs; $i += 2 ) {
+        my ( $k, $v ) = @pairs[ $i, $i + 1 ];
+        next if $self->exists($k);
+        $self->put( $k, $v );
     }
+    return $self;
+}
 
-    sub exists {
-        my ( $self, $key ) = @_;
+sub add {
+    my ( $self, @pairs ) = @_;
+    $self->$_validate_kv_pairs( { pairs => \@pairs } );
+
+    for ( my $i = 0; $i < @pairs; $i += 2 ) {
+        my ( $key, $value ) = @pairs[ $i, $i + 1 ];
         $key = $self->$_actual_key($key);
-        return unless defined $key;
-
-        return exists $index_of{ ident $self}{$key};
-    }
-
-    sub rename {
-        my ( $self, @pairs ) = @_;
-        $self->$_validate_kv_pairs( { pairs => \@pairs } );
-
-        foreach ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
-            my ( $old, $new ) = @pairs[ $i, $i + 1 ];
-            unless ( $self->exists($old) ) {
-                $self->$_croak("Cannot rename non-existent key ($old)");
-            }
-            unless ( defined $new ) {
-                $self->$_croak("Cannot rename ($old) to an undefined value");
-            }
-            if ( $self->exists($new) ) {
-                $self->$_croak(
-                    "Cannot rename ($old) to an key which already exists ($new)"
-                );
-            }
-            my $ident = ident $self;
-            my $index = delete $index_of{$ident}{$old};
-            $index_of{$ident}{$new} = $index;
-            $array_for{$ident}[$index] = $new;
+        if ( $self->exists($key) ) {
+            $self->$_croak("Cannot add existing key ($key)");
         }
-        return $self;
+        my $index = $self->$_index($key);
+        $self->{index_of}{$key}          = $index;
+        $self->{array_for}[$index]       = $key;
+        $self->{array_for}[ $index + 1 ] = $value;
     }
+    return $self;
+}
 
-    sub get {
-        my ( $self, @keys ) = @_;
-        my @get;
-        my $ident = ident $self;
-        foreach my $key (@keys) {
-            $key = $self->$_actual_key($key);
-            next unless defined $key;
-            my $exists = $self->exists($key);
-            if ( $is_strict{$ident} && !$exists ) {
-                $self->$_croak("Cannot get non-existent key ($key)");
-            }
-            if ($exists) {
-                CORE::push @get, $array_for{$ident}[ $self->$_index($key) + 1 ];
-            }
-            elsif ( @keys > 1 ) {
-                CORE::push @get, undef;
-            }
-            else {
-                return;
-            }
+sub put {
+    my ( $self, @pairs ) = @_;
+    $self->$_validate_kv_pairs( { pairs => \@pairs } );
+
+    for ( my $i = 0; $i < @pairs; $i += 2 ) {
+        my ( $key, $value ) = @pairs[ $i, $i + 1 ];
+        $key = $self->$_actual_key($key);
+        if ( !$self->exists($key) && $self->{is_strict} ) {
+            $self->$_croak("Cannot put a non-existent key ($key)");
         }
-        return wantarray ? @get
-          : @keys > 1    ? \@get
-          : $get[0];
+        my $index = $self->$_index($key);
+        $self->{index_of}{$key}          = $index;
+        $self->{array_for}[$index]       = $key;
+        $self->{array_for}[ $index + 1 ] = $value;
     }
+    return $self;
+}
 
-    sub get_pairs {
-        my ( $self, @keys ) = @_;
-
-        my @pairs;
-        foreach my $key (@keys) {
-            if ( $self->exists($key) ) {
-                CORE::push @pairs, $key, $self->get($key);
-            }
-            elsif ( $is_strict{ ident $self} ) {
-                $self->$_croak("Cannot get pair for non-existent key ($key)");
-            }
-        }
-        return wantarray ? @pairs : \@pairs;
-    }
-
-    sub default {
-        my ( $self, @pairs ) = @_;
-        $self->$_validate_kv_pairs( { pairs => \@pairs } );
-
-        for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
-            my ( $k, $v ) = @pairs[ $i, $i + 1 ];
-            next if $self->exists($k);
-            $self->put( $k, $v );
-        }
-        return $self;
-    }
-
-    sub add {
-        my ( $self, @pairs ) = @_;
-        $self->$_validate_kv_pairs( { pairs => \@pairs } );
-        my $ident = ident $self;
-
-        for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
-            my ( $key, $value ) = @pairs[ $i, $i + 1 ];
-            $key = $self->$_actual_key($key);
-            if ( $self->exists($key) ) {
-                $self->$_croak("Cannot add existing key ($key)");
-            }
-            my $index = $self->$_index($key);
-            $index_of{$ident}{$key}          = $index;
-            $array_for{$ident}[$index]       = $key;
-            $array_for{$ident}[ $index + 1 ] = $value;
-        }
-        return $self;
-    }
-
-    sub put {
-        my ( $self, @pairs ) = @_;
-        $self->$_validate_kv_pairs( { pairs => \@pairs } );
-        my $ident = ident $self;
-
-        for ( my $i = 0 ; $i < @pairs ; $i += 2 ) {
-            my ( $key, $value ) = @pairs[ $i, $i + 1 ];
-            $key = $self->$_actual_key($key);
-            if ( !$self->exists($key) && $is_strict{$ident} ) {
-                $self->$_croak("Cannot put a non-existent key ($key)");
-            }
-            my $index = $self->$_index($key);
-            $index_of{$ident}{$key}          = $index;
-            $array_for{$ident}[$index]       = $key;
-            $array_for{$ident}[ $index + 1 ] = $value;
-        }
-        return $self;
-    }
-
-    sub get_array {
-        my $self = CORE::shift;
-        return
-          wantarray ? @{ $array_for{ ident $self} } : $array_for{ ident $self};
-    }
+sub get_array {
+    my $self = CORE::shift;
+    return wantarray
+      ? @{ $self->{array_for} }
+      : $self->{array_for};
 }
 
 1;
@@ -517,7 +508,7 @@ Array::AsHash - Treat arrays as a hashes, even if you need references for keys.
 
 =head1 VERSION
 
-Version 0.31
+Version 0.32
 
 =head1 SYNOPSIS
 
@@ -660,7 +651,7 @@ returned instead of an array reference.
 Non-existing keys will be silently ignored unless you are in "strict" mode in which case
 non-existent keys are fatal.
 
-=head3 clear
+=head2 clear
 
   $array->clear;
 
@@ -1000,7 +991,7 @@ your bug as I make changes.
 
 =head1 SEE ALSO
 
-L<Clone>, L<Tie::IxHash>, L<Class::Std> (how this module is implemented).
+L<Clone>, L<Tie::IxHash>.
 
 =head1 COPYRIGHT & LICENSE
 

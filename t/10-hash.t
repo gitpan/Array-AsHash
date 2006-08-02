@@ -3,8 +3,8 @@
 use warnings;
 use strict;
 
-use Test::More tests => 189;
-#use Test::More qw/no_plan/;
+#use Test::More tests => 189;
+use Test::More qw/no_plan/;
 
 my $CLASS;
 
@@ -28,12 +28,10 @@ like $@, qr/Uneven number of keys in array/,
 ok defined( my $array = $CLASS->new ),  # must use defined as bool is overloaded
   'Calling new() without arguments should succeed';
 isa_ok $array, $CLASS, '... and the object it returns';
-
 can_ok $array, 'get';
 ok !defined $array->get('foo'), '... and non-existent keys should return false';
 ok !( my @foo = $array->get('foo') ),
   '... and should also work in list context';
-
 can_ok $array, 'exists';
 ok !$array->exists('foo'), '... and non-existent keys should return false';
 
